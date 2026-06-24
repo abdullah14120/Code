@@ -76,7 +76,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = "رقم المستخدم: ${request.phoneNumber}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Text(text = "نوع المشكلة: ${request.issueType}", modifier = Modifier.padding(top = 4.bt))
+            Text(text = "نوع المشكلة: ${request.issueType}", modifier = Modifier.padding(top = 4.dp))
             Text(
                 text = "الحالة: ${request.status}",
                 color = when(request.status) {
