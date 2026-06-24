@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "com.code.w.admin"
-        minSdk = 23
+        minSdk = 24 // تم رفعه إلى 24 ليتوافق مع متطلبات الـ Firebase والـ BOM المستخدمة في المشروع المشترك
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -38,10 +38,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
         
-        // تمرير الأمر للمترجم لتخطي فحص التوافقية الإجباري بين إصدار كوتلن وكومبوز
+        // تعديل القيمة لتحديد إصدار كوتلن بدقة (1.9.23) لحل تحذير المترجم الفوري في السيرفر
         freeCompilerArgs += listOf(
             "-P",
-            "plugin:androidx.compose.compiler.plugins.kotlin:suppressKotlinVersionCompatibilityCheck=true"
+            "plugin:androidx.compose.compiler.plugins.kotlin:suppressKotlinVersionCompatibilityCheck=1.9.23"
         )
     }
     buildFeatures {
@@ -74,7 +74,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Firebase (نفس الإصدار المتوافق والمستخدم في تطبيق المستخدم)
+    // Firebase & Material Design Components (متطابقة تماماً مع تطبيق المستخدم)
     implementation(platform("com.google.firebase:firebase-bom:33.1.1"))
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
