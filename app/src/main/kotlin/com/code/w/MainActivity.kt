@@ -1,5 +1,6 @@
 package com.code.w
 
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -12,6 +13,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,18 +21,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.code.w.model.SupportRequest
 import com.code.w.viewmodel.UserSupportViewModel
+import kotlinx.coroutines.delay
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        val sharedPreferences = getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
+        val savedRequestId = sharedPreferences.getString("last_request_id", null)
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AppNavigationRouter()
+                    AppNavigationRouter(initialRequestId = savedRequestId)
                 }
             }
         }
@@ -38,18 +47,31 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppNavigationRouter() {
+fun AppNavigationRouter(initialRequestId: String?) {
+    val context = LocalContext.current
     val viewModel: UserSupportViewModel = viewModel()
-    var currentRequestId by remember { mutableStateOf<String?>(null) }
+    var currentRequestId by remember { mutableStateOf(initialRequestId) }
 
     Crossfade(targetState = currentRequestId, label = "AppNav") { id ->
         if (id == null) {
             SubmissionScreen(
                 viewModel = viewModel,
-                onSuccess = { createdId -> currentRequestId = createdId }
+                onSuccess = { createdId -> 
+                    val sharedPreferences = context.getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
+                    sharedPreferences.edit().putString("last_request_id", createdId).apply()
+                    currentRequestId = createdId 
+                }
             )
         } else {
-            TrackingScreen(requestId = id, viewModel = viewModel)
+            TrackingScreen(
+                requestId = id, 
+                viewModel = viewModel,
+                onClearSession = {
+                    val sharedPreferences = context.getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
+                    sharedPreferences.edit().remove("last_request_id").apply()
+                    currentRequestId = null
+                }
+            )
         }
     }
 }
@@ -74,10 +96,21 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
 
         OutlinedTextField(
             value = phone,
-            onValueChange = { phone = it },
-            label = { Text("رقم الهاتف") },
+            onValueChange = { input ->
+                val digitsOnly = input.filter { it.isDigit() }
+                if (digitsOnly.length <= 9) {
+                    if (digitsOnly.isEmpty()) {
+                        phone = ""
+                    } else if (digitsOnly.startsWith("7")) {
+                        phone = digitsOnly
+                    }
+                }
+            },
+            label = { Text("رقم الهاتف (9 أرقام يبدأ بـ 7)") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true
         )
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -104,17 +137,17 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
 
         Button(
             onClick = {
-                if (phone.isNotBlank()) {
+                if (phone.length == 9 && phone.startsWith("7")) {
                     viewModel.sendSupportRequest(phone, selectedIssue, onSuccess, {
                         Toast.makeText(context, "فشل إرسال الطلب", Toast.LENGTH_SHORT).show()
                     })
                 } else {
-                    Toast.makeText(context, "يرجى إدخال رقم الهاتف", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "يجب أن يتكون الرقم من 9 أرقام ويبدأ بـ 7", Toast.LENGTH_LONG).show()
                 }
             },
             modifier = Modifier.fillMaxWidth().height(54.dp).animateContentSize(),
             shape = RoundedCornerShape(12.dp),
-            enabled = !isSubmitting
+            enabled = !isSubmitting && phone.length == 9
         ) {
             if (isSubmitting) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
@@ -126,7 +159,7 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
 }
 
 @Composable
-fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel) {
+fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, onClearSession: () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(requestId) { viewModel.startObservingRequest(requestId) }
     val requestState by viewModel.currentRequest.collectAsState()
@@ -147,6 +180,13 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel) {
                         Text("جاري مراجعة الطلب...", fontSize = 18.sp, fontWeight = FontWeight.Medium)
                     }
                 }
+                
+                // الواجهة الجديدة: شاشة العداد التنازلي الذكي
+                SupportRequest.Status.PRE_APPROVED -> {
+                    val endTime = requestState?.timerEndTime ?: 0L
+                    CountdownTimerScreen(endTime = endTime)
+                }
+
                 SupportRequest.Status.APPROVED -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("تمت الموافقة على طلبك", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
@@ -168,7 +208,6 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel) {
                         Button(
                             onClick = {
                                 selectedImageUri?.let { uri ->
-                                    // تم التعديل هنا لتمرير الـ context لمعالجة وتشفير الصورة دون الحاجة للـ Storage
                                     viewModel.uploadReceipt(context, requestId, uri) { success ->
                                         if (success) {
                                             Toast.makeText(context, "تم إرسال الإيصال بنجاح", Toast.LENGTH_SHORT).show()
@@ -203,9 +242,62 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel) {
                                 Text(requestState?.adminNotes ?: "")
                             }
                         }
+                        Spacer(modifier = Modifier.height(24.dp))
+                        TextButton(onClick = onClearSession) {
+                            Text("العودة لإنشاء طلب جديد")
+                        }
+                    }
+                }
+                null -> {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("جاري جلب بيانات الحالة...")
                     }
                 }
             }
         }
+    }
+}
+
+// الكومبوننت المخصص لحساب وعرض العداد التنازلي بشكل حي ومحمي ضد الإغلاق
+@Composable
+fun CountdownTimerScreen(endTime: Long) {
+    var timeLeft by remember { mutableStateOf(0L) }
+
+    // حلقة تحديث برمجية تتأكد من حساب الفارق الزمني الحقيقي كل ثانية واحدة
+    LaunchedEffect(key1 = endTime) {
+        while (true) {
+            val currentTime = System.currentTimeMillis()
+            val difference = endTime - currentTime
+            timeLeft = if (difference > 0) difference / 1000 else 0L
+            if (timeLeft <= 0L) break
+            delay(1000)
+        }
+    }
+
+    // تحويل الثواني المتبقية إلى صيغة MM:SS القياسية
+    val minutes = timeLeft / 60
+    val seconds = timeLeft % 60
+    val formattedTime = String.format(Locale.US, "%02d:%02d", minutes, seconds)
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator(
+            progress = { if (timeLeft > 0) (timeLeft.toFloat() / 1800f) else 0f }, // 1800 ثانية هي 30 دقيقة
+            modifier = Modifier.size(120.dp),
+            strokeWidth = 6.dp,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = formattedTime,
+            fontSize = 38.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "تمت الموافقة المبدئية، جاري تجهيز المعاملة...",
+            fontSize = 15.sp,
+            color = Color.Gray
+        )
     }
 }
