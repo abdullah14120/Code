@@ -27,6 +27,11 @@ class AdminSupportViewModel : ViewModel() {
         }
     }
 
+    // الدالة المضافة حديثاً لمنح الموافقة المبدئية وتفعيل العداد التنازلي لدى المستخدم
+    fun preApproveRequest(requestId: String, endTime: Long, onComplete: (Boolean) -> Unit) {
+        repository.preApproveWithTimer(requestId, endTime, onComplete)
+    }
+
     fun approveRequest(requestId: String, bankDetails: String, onComplete: (Boolean) -> Unit) {
         repository.approveWithBankDetails(requestId, bankDetails, onComplete)
     }
