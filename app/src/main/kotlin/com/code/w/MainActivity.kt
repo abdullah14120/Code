@@ -168,8 +168,13 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel) {
                         Button(
                             onClick = {
                                 selectedImageUri?.let { uri ->
-                                    viewModel.uploadReceipt(requestId, uri) { success ->
-                                        if (!success) Toast.makeText(context, "فشل رفع الصورة", Toast.LENGTH_SHORT).show()
+                                    // تم التعديل هنا لتمرير الـ context لمعالجة وتشفير الصورة دون الحاجة للـ Storage
+                                    viewModel.uploadReceipt(context, requestId, uri) { success ->
+                                        if (success) {
+                                            Toast.makeText(context, "تم إرسال الإيصال بنجاح", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "فشل معالجة وإرسال الصورة", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 }
                             },
