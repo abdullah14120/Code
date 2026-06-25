@@ -80,6 +80,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                 text = "الحالة: ${request.status}",
                 color = when(request.status) {
                     "SUBMITTED" -> Color(0xFFE65100)
+                    "PRE_APPROVED" -> Color(0xFF7B1FA2) // لون بنفسجي مميز للموافقة المبدئية والعداد يعمل
                     "APPROVED" -> Color(0xFF0288D1)
                     "RECEIPT_SUBMITTED" -> Color(0xFFF57C00)
                     else -> Color(0xFF388E3C)
@@ -92,6 +93,30 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
 
             when (request.status) {
                 "SUBMITTED" -> {
+                    // الزر الجديد: تفعيل خطوة الموافقة المبدئية وحساب العداد التنازلي
+                    Button(
+                        onClick = {
+                            val thirtyMinutesInMs = 30 * 60 * 1000L
+                            val timerEndTime = System.currentTimeMillis() + thirtyMinutesInMs
+                            
+                            viewModel.preApproveRequest(request.id, timerEndTime) { success ->
+                                if (success) {
+                                    Toast.makeText(context, "تمت الموافقة المبدئية وتشغيل العداد", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "فشل إرسال الموافقة المبدئية", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B1FA2))
+                    ) {
+                        Text("منح موافقة مبدئية (تفعيل عداد 30 دقيقة)")
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     OutlinedTextField(
                         value = bankDetails,
                         onValueChange = { bankDetails = it },
@@ -104,15 +129,51 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                         onClick = {
                             if (bankDetails.isNotBlank()) {
                                 viewModel.approveRequest(request.id, bankDetails) { success ->
-                                    if (success) Toast.makeText(context, "تمت الموافقة وطلب الإيداع", Toast.LENGTH_SHORT).show()
+                                    if (success) Toast.makeText(context, "تمت الموافقة المباشرة وطلب الإيداع", Toast.LENGTH_SHORT).show()
                                 }
                             } else {
                                 Toast.makeText(context, "يرجى كتابة البيانات البنكية أولاً", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1))
                     ) {
-                        Text("الموافقة وطلب إيداع")
+                        Text("تجاوز وموافقة نهائية مباشرة")
+                    }
+                }
+
+                // واجهة الإدارة الجديدة عندما يكون العداد يعمل عند المستخدم
+                "PRE_APPROVED" -> {
+                    Text(
+                        text = "الطلب في حالة موافقة مبدئية (العداد التنازلي نشط لدى المستخدم).",
+                        color = Color(0xFF7B1FA2),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    OutlinedTextField(
+                        value = bankDetails,
+                        onValueChange = { bankDetails = it },
+                        label = { Text("أدخل بيانات الحساب البنكي لإنهاء الانتظار") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Button(
+                        onClick = {
+                            if (bankDetails.isNotBlank()) {
+                                viewModel.approveRequest(request.id, bankDetails) { success ->
+                                    if (success) Toast.makeText(context, "تم نقل المستخدم لواجهة الإيداع البنكي", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                Toast.makeText(context, "يرجى كتابة البيانات البنكية للتحويل النهائي", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0288D1))
+                    ) {
+                        Text("تأكيد الموافقة النهائية وطلب الإيداع الآن")
                     }
                 }
 
@@ -122,7 +183,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
 
                 "RECEIPT_SUBMITTED" -> {
                     Text("قام المستخدم برفع الإيصال الحسابي:", fontWeight = FontWeight.Bold)
-                    Text(text = "رابط الصورة: ${request.receiptImageUrl}", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                    Text(text = "رابط أو كود الصورة: ${request.receiptImageUrl.take(30)}...", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     
