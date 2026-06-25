@@ -8,7 +8,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
-// تحديث الكائن ليتضمن حقل الوقت المستقبلي للعداد التنازلي
 data class AdminSupportRequest(
     val id: String = "",
     val phoneNumber: String = "",
@@ -17,13 +16,12 @@ data class AdminSupportRequest(
     val adminNotes: String = "",
     val bankDetails: String = "",
     val receiptImageUrl: String = "",
-    val timerEndTime: Long = 0L // الحقل المضاف لدعم العداد
+    val timerEndTime: Long = 0L
 )
 
 class AdminRepository {
     private val database = FirebaseDatabase.getInstance().getReference("support_requests")
 
-    // جلب جميع الطلبات المفتوحة والاستماع اللحظي للتغيرات
     fun observeAllRequests(): Flow<List<AdminSupportRequest>> = callbackFlow {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
@@ -38,7 +36,6 @@ class AdminRepository {
         awaitClose { database.removeEventListener(listener) }
     }
 
-    // الدالة الجديدة: تفعيل الموافقة المبدئية وضخ الطابع الزمني لانتهاء العداد (30 دقيقة)
     fun preApproveWithTimer(requestId: String, endTime: Long, onResult: (Boolean) -> Unit) {
         val updates = mapOf(
             "status" to "PRE_APPROVED",
@@ -49,7 +46,6 @@ class AdminRepository {
         }
     }
 
-    // تحديث الحالة إلى APPROVED وإرسال بيانات البنك للمستخدم وإنهاء العداد التنازلي
     fun approveWithBankDetails(requestId: String, bankDetails: String, onResult: (Boolean) -> Unit) {
         val updates = mapOf(
             "bankDetails" to bankDetails,
@@ -60,7 +56,6 @@ class AdminRepository {
         }
     }
 
-    // تحديث الحالة إلى COMPLETED وإرسال التعليمات النهائية للمستخدم وإغلاق الطلب
     fun completeRequestWithNotes(requestId: String, notes: String, onResult: (Boolean) -> Unit) {
         val updates = mapOf(
             "adminNotes" to notes,
