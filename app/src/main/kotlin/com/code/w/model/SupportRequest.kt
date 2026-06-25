@@ -8,13 +8,14 @@ data class SupportRequest(
     val bankDetails: String = "",
     val adminNotes: String = "",
     val receiptImageUrl: String = "",
-    val timerEndTime: Long = 0L // حقل الطابع الزمني لانتهاء العداد
+    val timerEndTime: Long = 0L
 ) {
-    enum Status {
-        SUBMITTED,          // جاري مراجعة الطلب
-        PRE_APPROVED,       // موافقة مبدئية (شاشة العداد التنازلي)
-        APPROVED,           // تمت الموافقة وطلب الإيداع
-        RECEIPT_SUBMITTED,  // تم رفع الإيصال
-        COMPLETED           // مكتمل
+    // تم تصحيح الخطأ بإضافة كلمة class هنا
+    enum class Status {
+        SUBMITTED,          
+        PRE_APPROVED,       
+        APPROVED,           
+        RECEIPT_SUBMITTED,  
+        COMPLETED           
     }
 }
