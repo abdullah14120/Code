@@ -11,23 +11,44 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.code.w.model.SupportRequest
 import com.code.w.viewmodel.UserSupportViewModel
 import kotlinx.coroutines.delay
 import java.util.Locale
+
+// لوحة الألوان الفخمة الهادئة المخصصة للمظهر الاحترافي
+private val DarkBackground = Color(0xFF121212)
+private val DarkSurface = Color(0xFF1E1E1E)
+private val AccentPrimary = Color(0xFF0D9488) // Teal احترافي
+private val TextPrimary = Color(0xFFF3F4F6)
+private val TextSecondary = Color(0xFF9CA3AF)
+
+// هندسة الأسطح الدقيقة لحواف فخمة وتباين عميق
+private val NeumorphicBorder = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.06f))
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,7 +58,7 @@ class MainActivity : ComponentActivity() {
         val savedRequestId = sharedPreferences.getString("last_request_id", null)
 
         setContent {
-            MaterialTheme {
+            CustomDarkTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     AppNavigationRouter(initialRequestId = savedRequestId)
                 }
@@ -47,32 +68,169 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+fun CustomDarkTheme(content: @Composable () -> Unit) {
+    val darkColorScheme = darkColorScheme(
+        background = DarkBackground,
+        surface = DarkSurface,
+        primary = AccentPrimary,
+        onBackground = TextPrimary,
+        onSurface = TextPrimary,
+        surfaceVariant = DarkSurface
+    )
+    MaterialTheme(colorScheme = darkColorScheme, content = content)
+}
+
+@Composable
 fun AppNavigationRouter(initialRequestId: String?) {
     val context = LocalContext.current
     val viewModel: UserSupportViewModel = viewModel()
     var currentRequestId by remember { mutableStateOf(initialRequestId) }
+    val requestState by viewModel.currentRequest.collectAsState()
 
-    Crossfade(targetState = currentRequestId, label = "AppNav") { id ->
-        if (id == null) {
-            SubmissionScreen(
-                viewModel = viewModel,
-                onSuccess = { createdId -> 
-                    val sharedPreferences = context.getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
-                    sharedPreferences.edit().putString("last_request_id", createdId).apply()
-                    currentRequestId = createdId 
+    Scaffold(
+        topBar = {
+            Column {
+                TopBannerComponent()
+                // إضافة شريط مؤشر الخطوات الأفقي تحت البانر العلوي مباشرة عند وجود طلب نشط
+                requestState?.let { request ->
+                    StepperComponent(currentStatus = request.status)
                 }
-            )
-        } else {
-            TrackingScreen(
-                requestId = id, 
-                viewModel = viewModel,
-                onClearSession = {
-                    val sharedPreferences = context.getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
-                    sharedPreferences.edit().remove("last_request_id").apply()
-                    currentRequestId = null
+            }
+        },
+        bottomBar = { BottomFooterComponent() },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            Crossfade(targetState = currentRequestId, label = "AppNav") { id ->
+                if (id == null) {
+                    SubmissionScreen(
+                        viewModel = viewModel,
+                        onSuccess = { createdId -> 
+                            val sharedPreferences = context.getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
+                            sharedPreferences.edit().putString("last_request_id", createdId).apply()
+                            currentRequestId = createdId 
+                        }
+                    )
+                } else {
+                    TrackingScreen(
+                        requestId = id, 
+                        viewModel = viewModel,
+                        requestState = requestState,
+                        isUploading = viewModel.isUploading.collectAsState().value,
+                        onClearSession = {
+                            val sharedPreferences = context.getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
+                            sharedPreferences.edit().remove("last_request_id").apply()
+                            currentRequestId = null
+                        }
+                    )
                 }
-            )
+            }
         }
+    }
+}
+
+@Composable
+fun TopBannerComponent() {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).border(NeumorphicBorder, RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = "Banner Icon",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+            Column {
+                Text(text = "نظام الدعم الفني الذكي", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(text = "معالجة فورية ومتابعة لحظية لطلباتكم", fontSize = 12.sp, color = TextSecondary)
+            }
+        }
+    }
+}
+
+// 1. إضافة شريط مؤشر الخطوات الأفقي (Stepper Component)
+@Composable
+fun StepperComponent(currentStatus: SupportRequest.Status) {
+    val steps = listOf("مراجعة", "موافقة", "إيداع", "اكتمال")
+    val activeIndex = when (currentStatus) {
+        SupportRequest.Status.SUBMITTED -> 0
+        SupportRequest.Status.PRE_APPROVED -> 1
+        SupportRequest.Status.APPROVED -> 2
+        SupportRequest.Status.RECEIPT_SUBMITTED -> 2
+        SupportRequest.Status.COMPLETED -> 3
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        steps.forEachIndexed { index, step ->
+            val isActive = index <= activeIndex
+            val color = if (isActive) MaterialTheme.colorScheme.primary else Color(0xFF374151)
+            
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = index < steps.lastIndex)) {
+                Box(
+                    modifier = Modifier.size(24.dp).background(if (isActive) color.copy(alpha = 0.2f) else Color.Transparent, CircleShape).border(1.5.dp, color, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = (index + 1).toString(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color)
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(text = step, fontSize = 11.sp, fontWeight = if (index == activeIndex) FontWeight.Bold else FontWeight.Normal, color = if (index == activeIndex) TextPrimary else TextSecondary)
+                
+                if (index < steps.lastIndex) {
+                    HorizontalDivider(modifier = Modifier.weight(1f).padding(horizontal = 8.dp), thickness = 1.dp, color = if (index < activeIndex) MaterialTheme.colorScheme.primary else Color(0xFF374151))
+                }
+            }
+        }
+    }
+}
+
+// 2. إضافة دالة مؤشر الحالة النبضي (Status Pulse Indicator)
+@Composable
+fun PulseIndicator(color: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
+    val progress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = twin(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "PulseProgress"
+    )
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(animation = twin(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "PulseAlpha"
+    )
+
+    Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(color = color, radius = size.minDimension / 2 * progress, alpha = alpha, style = stroke(2.dp.toPx()))
+            drawCircle(color = color, radius = 4.dp.toPx())
+        }
+    }
+}
+
+@Composable
+fun BottomFooterComponent() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(imageVector = Icons.Default.Call, contentDescription = "Support", tint = TextSecondary, modifier = Modifier.size(12.dp))
+            Text(text = "الدعم المباشر: +966500000000", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        }
+        Text(text = "جميع الحقوق محفوظة © 2026", fontSize = 11.sp, color = Color(0xFF4B5563), textAlign = TextAlign.Center)
     }
 }
 
@@ -87,30 +245,32 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
     val isSubmitting by viewModel.isSubmitting.collectAsState()
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = "مركز المساعدة والدعم الفني", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(32.dp))
+        Text(text = "إنشاء طلب دعم جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+        Spacer(modifier = Modifier.height(24.dp))
 
         OutlinedTextField(
             value = phone,
             onValueChange = { input ->
                 val digitsOnly = input.filter { it.isDigit() }
-                if (digitsOnly.length <= 9) {
-                    if (digitsOnly.isEmpty()) {
-                        phone = ""
-                    } else if (digitsOnly.startsWith("7")) {
-                        phone = digitsOnly
-                    }
+                if (digitsOnly.length <= 9 && (digitsOnly.isEmpty() || digitsOnly.startsWith("7"))) {
+                    phone = digitsOnly
                 }
             },
-            label = { Text("رقم الهاتف (9 أرقام يبدأ بـ 7)") },
-            modifier = Modifier.fillMaxWidth(),
+            label = { Text("رقم الهاتف") },
+            placeholder = { Text("7xxxxxxxx") },
+            modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = Color.Transparent,
+                containerColor = MaterialTheme.colorScheme.surface
+            )
         )
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -118,22 +278,21 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
         Box(modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = { expanded = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary, containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(0.dp, Color.Transparent)
             ) {
                 Text(text = "نوع المشكلة: $selectedIssue")
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
                 issues.forEach { issue ->
-                    DropdownMenuItem(
-                        text = { Text(issue) },
-                        onClick = { selectedIssue = issue; expanded = false }
-                    )
+                    DropdownMenuItem(text = { Text(issue, color = TextPrimary) }, onClick = { selectedIssue = issue; expanded = false })
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         Button(
             onClick = {
@@ -141,65 +300,65 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                     viewModel.sendSupportRequest(phone, selectedIssue, onSuccess, {
                         Toast.makeText(context, "فشل إرسال الطلب", Toast.LENGTH_SHORT).show()
                     })
-                } else {
-                    Toast.makeText(context, "يجب أن يتكون الرقم من 9 أرقام ويبدأ بـ 7", Toast.LENGTH_LONG).show()
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(54.dp).animateContentSize(),
+            modifier = Modifier.fillMaxWidth().height(52.dp).animateContentSize().border(NeumorphicBorder, RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             enabled = !isSubmitting && phone.length == 9
         ) {
             if (isSubmitting) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
             } else {
-                Text("إرسال طلب", fontSize = 16.sp)
+                Text("تأكيد وإرسال", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 @Composable
-fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, onClearSession: () -> Unit) {
+fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestState: SupportRequest?, isUploading: Boolean, onClearSession: () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(requestId) { viewModel.startObservingRequest(requestId) }
-    val requestState by viewModel.currentRequest.collectAsState()
-    val isUploading by viewModel.isUploading.collectAsState()
 
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? -> selectedImageUri = uri }
+    val galleryLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? -> selectedImageUri = uri }
 
     Crossfade(targetState = requestState?.status, label = "TrackingNav") { status ->
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             when (status) {
                 SupportRequest.Status.SUBMITTED -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(modifier = Modifier.size(48.dp))
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("جاري مراجعة الطلب...", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PulseIndicator(color = Color(0xFFE65100)) // نبض برتقالي لمرحلة المراجعة أولية
+                            Text("جاري مراجعة الطلب...", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                        }
+                        CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
                     }
                 }
                 
-                // الواجهة الجديدة: شاشة العداد التنازلي الذكي
                 SupportRequest.Status.PRE_APPROVED -> {
                     val endTime = requestState?.timerEndTime ?: 0L
                     CountdownTimerScreen(endTime = endTime)
                 }
 
                 SupportRequest.Status.APPROVED -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("تمت الموافقة على طلبك", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PulseIndicator(color = Color(0xFF0D9488)) // نبض تيل معتمد
+                            Text("تمت الموافقة على طلبك", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
-                        Card(modifier = Modifier.fillMaxWidth()) {
+                        Card(modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("الحساب البنكي للأدمن:", fontWeight = FontWeight.Bold)
-                                Text(requestState?.bankDetails ?: "")
+                                Text("الحساب البنكي للأدمن:", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(requestState?.bankDetails ?: "", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
                             }
                         }
                         Spacer(modifier = Modifier.height(24.dp))
                         
-                        OutlinedButton(onClick = { galleryLauncher.launch("image/*") }) {
+                        OutlinedButton(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = TextPrimary), border = BorderStroke(0.dp, Color.Transparent)) {
                             Text(if (selectedImageUri == null) "إرفاق صورة الإيداع" else "تم اختيار صورة الإيداع")
                         }
                         
@@ -209,48 +368,50 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, onClearSe
                             onClick = {
                                 selectedImageUri?.let { uri ->
                                     viewModel.uploadReceipt(context, requestId, uri) { success ->
-                                        if (success) {
-                                            Toast.makeText(context, "تم إرسال الإيصال بنجاح", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "فشل معالجة وإرسال الصورة", Toast.LENGTH_SHORT).show()
-                                        }
+                                        if (!success) Toast.makeText(context, "فشل معالجة وإرسال الصورة", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
                             enabled = selectedImageUri != null && !isUploading,
-                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                            modifier = Modifier.fillMaxWidth().height(50.dp).border(NeumorphicBorder, RoundedCornerShape(12.dp)),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             if (isUploading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                            else Text("تأكيد وإرسال")
+                            else Text("تأكيد وإرسال الإيصال", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
+                
                 SupportRequest.Status.RECEIPT_SUBMITTED -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("جاري التحقق من إيصال التحويل...", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PulseIndicator(color = Color(0xFFF57C00))
+                            Text("جاري التحقق من إيصال التحويل...", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                        }
+                        CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
                     }
                 }
+                
                 SupportRequest.Status.COMPLETED -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("تمت العملية بنجاح", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                        Text("تمت العملية بنجاح", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
                         Spacer(modifier = Modifier.height(16.dp))
-                        Card(modifier = Modifier.fillMaxWidth()) {
+                        Card(modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("ملاحظات وتعليمات الأدمن:", fontWeight = FontWeight.Bold)
-                                Text(requestState?.adminNotes ?: "")
+                                Text("ملاحظات وتعليمات الأدمن النهائي:", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(requestState?.adminNotes ?: "", fontSize = 16.sp, color = TextPrimary)
                             }
                         }
                         Spacer(modifier = Modifier.height(24.dp))
                         TextButton(onClick = onClearSession) {
-                            Text("العودة لإنشاء طلب جديد")
+                            Text("العودة لإنشاء طلب جديد", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
                 null -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("جاري جلب بيانات الحالة...")
+                        Text("جاري قراءة وتحديث البيانات السحابية...", color = TextSecondary)
                     }
                 }
             }
@@ -258,12 +419,10 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, onClearSe
     }
 }
 
-// الكومبوننت المخصص لحساب وعرض العداد التنازلي بشكل حي ومحمي ضد الإغلاق
 @Composable
 fun CountdownTimerScreen(endTime: Long) {
     var timeLeft by remember { mutableStateOf(0L) }
 
-    // حلقة تحديث برمجية تتأكد من حساب الفارق الزمني الحقيقي كل ثانية واحدة
     LaunchedEffect(key1 = endTime) {
         while (true) {
             val currentTime = System.currentTimeMillis()
@@ -274,30 +433,25 @@ fun CountdownTimerScreen(endTime: Long) {
         }
     }
 
-    // تحويل الثواني المتبقية إلى صيغة MM:SS القياسية
     val minutes = timeLeft / 60
     val seconds = timeLeft % 60
     val formattedTime = String.format(Locale.US, "%02d:%02d", minutes, seconds)
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        CircularProgressIndicator(
-            progress = { if (timeLeft > 0) (timeLeft.toFloat() / 1800f) else 0f }, // 1800 ثانية هي 30 دقيقة
-            modifier = Modifier.size(120.dp),
-            strokeWidth = 6.dp,
-            color = MaterialTheme.colorScheme.primary
-        )
+        Box(contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(
+                progress = { if (timeLeft > 0) (timeLeft.toFloat() / 1800f) else 0f },
+                modifier = Modifier.size(130.dp),
+                strokeWidth = 5.dp,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = Color(0xFF1E1E1E)
+            )
+            Text(text = formattedTime, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+        }
         Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = formattedTime,
-            fontSize = 38.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "تمت الموافقة المبدئية، جاري تجهيز المعاملة...",
-            fontSize = 15.sp,
-            color = Color.Gray
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PulseIndicator(color = Color(0xFF7B1FA2)) // نبض بنفسجي مخصص لفترة الانتظار النشطة
+            Text(text = "تمت الموافقة المبدئية، جاري موازنة الطلب...", fontSize = 14.sp, color = TextSecondary)
+        }
     }
 }
