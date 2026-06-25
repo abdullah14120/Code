@@ -1,6 +1,5 @@
 package com.code.w
 
-import androidx.lifecycle.viewmodel.compose.viewModel // صحيح (M كبيرة)
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -8,7 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
@@ -43,7 +42,7 @@ fun AppNavigationRouter() {
     val viewModel: UserSupportViewModel = viewModel()
     var currentRequestId by remember { mutableStateOf<String?>(null) }
 
-    Crossfade(targetState = currentRequestId) { id ->
+    Crossfade(targetState = currentRequestId, label = "AppNav") { id ->
         if (id == null) {
             SubmissionScreen(
                 viewModel = viewModel,
@@ -55,6 +54,7 @@ fun AppNavigationRouter() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Unit) {
     val context = LocalContext.current
@@ -137,7 +137,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? -> selectedImageUri = uri }
 
-    Crossfade(targetState = requestState?.status) { status ->
+    Crossfade(targetState = requestState?.status, label = "TrackingNav") { status ->
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             when (status) {
                 SupportRequest.Status.SUBMITTED -> {
