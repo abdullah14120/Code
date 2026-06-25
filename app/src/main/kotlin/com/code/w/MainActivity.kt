@@ -144,8 +144,8 @@ fun TopBannerComponent() {
                 modifier = Modifier.size(28.dp)
             )
             Column {
-                Text(text = "نظام الدّم الفني الذكي", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Text(text = "معالجة فورية ومتابعة لحظية لطلباتكم", fontSize = 12.sp, color = TextSecondary)
+                Text(text = "نظام الدّعم الفني للواتساب", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(text = "معالجة فورية لمشكلة عدم وصول كود التحقق و تسجيل الدخول غير متوفر", fontSize = 12.sp, color = TextSecondary)
             }
         }
     }
@@ -224,9 +224,9 @@ fun BottomFooterComponent() {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(imageVector = Icons.Default.Call, contentDescription = "Support", tint = TextSecondary, modifier = Modifier.size(12.dp))
-            Text(text = "الدعم المباشر: +966500000000", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+            Text(text = "الدعم المباشر: +967770034578", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
         }
-        Text(text = "جميع الحقوق محفوظة © 2026", fontSize = 11.sp, color = Color(0xFF4B5563), textAlign = TextAlign.Center)
+        Text(text = "جميع الحقوق محفوظة عبدالله التميمي © 2026", fontSize = 11.sp, color = Color(0xFF4B5563), textAlign = TextAlign.Center)
     }
 }
 
@@ -236,7 +236,7 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
     val context = LocalContext.current
     var phone by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
-    val issues = listOf("المشكلة الاولى")
+    val issues = listOf("عدم وصول كود التحقق")
     var selectedIssue by remember { mutableStateOf(issues[0]) }
     val isSubmitting by viewModel.isSubmitting.collectAsState()
 
@@ -329,7 +329,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseIndicator(color = Color(0xFFE65100)) 
-                            Text("جاري مراجعة الطلب...", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                            Text("تم إرسال الطلب و في إنتظار قبوله من الدعم الفني .... يرجى الإنتظار قليلًا .....", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
                         }
                         CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
                     }
@@ -344,12 +344,12 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseIndicator(color = Color(0xFF0D9488)) 
-                            Text("تمت الموافقة على طلبك", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                            Text("إيداع على حسابنا في العـمـقـي", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Card(modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("الحساب البنكي للأدمن:", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
+                                Text("عبدالله سعيد عبدالله علاوه التميمي | رقم الحساب : 254293617", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(requestState?.bankDetails ?: "", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
                             }
@@ -392,11 +392,11 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                 
                 SupportRequest.Status.COMPLETED -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("تمت العملية بنجاح", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                        Text("تم حل المشكلة بنجاح", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
                         Spacer(modifier = Modifier.height(16.dp))
                         Card(modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("ملاحظات وتعليمات الأدمن النهائي:", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
+                                Text("ملاحظات قبل البدء بـتفيل حسابك على الواتساب :", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(requestState?.adminNotes ?: "", fontSize = 16.sp, color = TextPrimary)
                             }
@@ -450,7 +450,7 @@ fun CountdownTimerScreen(endTime: Long) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // تم تصحيح الـ tween هنا أيضاً
             PulseIndicator(color = Color(0xFF7B1FA2)) 
-            Text(text = "تمت الموافقة المبدئية، جاري موازنة الطلب...", fontSize = 14.sp, color = TextSecondary)
+            Text(text = "تمت قبول طلبك يرجى الإنتظار ....., fontSize = 14.sp, color = TextSecondary)
         }
     }
 }
