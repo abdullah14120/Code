@@ -4,16 +4,17 @@ data class SupportRequest(
     val id: String = "",
     val phoneNumber: String = "",
     val issueType: String = "",
-    val status: String = "SUBMITTED",
-    val adminNotes: String = "",
+    val status: Status = Status.SUBMITTED,
     val bankDetails: String = "",
-    val receiptImageUrl: String = ""
+    val adminNotes: String = "",
+    val receiptImageUrl: String = "",
+    val timerEndTime: Long = 0L // حقل الطابع الزمني لانتهاء العداد
 ) {
-    // كائن يمثل الحالات المختلفة للطلب لمنع الأخطاء الإملائية أثناء الفحص
-    object Status {
-        const val SUBMITTED = "SUBMITTED"
-        const val APPROVED = "APPROVED"
-        const val RECEIPT_SUBMITTED = "RECEIPT_SUBMITTED"
-        const val COMPLETED = "COMPLETED"
+    enum Status {
+        SUBMITTED,          // جاري مراجعة الطلب
+        PRE_APPROVED,       // موافقة مبدئية (شاشة العداد التنازلي)
+        APPROVED,           // تمت الموافقة وطلب الإيداع
+        RECEIPT_SUBMITTED,  // تم رفع الإيصال
+        COMPLETED           // مكتمل
     }
 }
