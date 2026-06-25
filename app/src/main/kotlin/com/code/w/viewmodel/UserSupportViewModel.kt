@@ -1,5 +1,6 @@
 package com.code.w.viewmodel
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,11 +27,7 @@ class UserSupportViewModel : ViewModel() {
         _isSubmitting.value = true
         repository.createRequest(phoneNumber, issueType) { requestId ->
             _isSubmitting.value = false
-            if (requestId != null) {
-                onSuccess(requestId)
-            } else {
-                onFailure()
-            }
+            if (requestId != null) onSuccess(requestId) else onFailure()
         }
     }
 
@@ -42,9 +39,10 @@ class UserSupportViewModel : ViewModel() {
         }
     }
 
-    fun uploadReceipt(requestId: String, imageUri: Uri, onComplete: (Boolean) -> Unit) {
+    // تحديث دالة الرفع لتستقبل الـ Context وتدعم تشفير الـ Base64 التلقائي
+    fun uploadReceipt(context: Context, requestId: String, imageUri: Uri, onComplete: (Boolean) -> Unit) {
         _isUploading.value = true
-        repository.uploadReceiptAndSubmit(requestId, imageUri) { success ->
+        repository.uploadReceiptAsBase64(context, requestId, imageUri) { success ->
             _isUploading.value = false
             onComplete(success)
         }
