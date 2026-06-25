@@ -28,7 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.stroke
+import androidx.compose.ui.graphics.drawscope.Stroke // تصحيح استدعاء الـ Stroke بحجم كبير
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -40,14 +40,11 @@ import com.code.w.viewmodel.UserSupportViewModel
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-// لوحة الألوان الفخمة الهادئة المخصصة للمظهر الاحترافي
 private val DarkBackground = Color(0xFF121212)
 private val DarkSurface = Color(0xFF1E1E1E)
-private val AccentPrimary = Color(0xFF0D9488) // Teal احترافي
+private val AccentPrimary = Color(0xFF0D9488) 
 private val TextPrimary = Color(0xFFF3F4F6)
 private val TextSecondary = Color(0xFF9CA3AF)
-
-// هندسة الأسطح الدقيقة لحواف فخمة وتباين عميق
 private val NeumorphicBorder = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.06f))
 
 class MainActivity : ComponentActivity() {
@@ -91,7 +88,6 @@ fun AppNavigationRouter(initialRequestId: String?) {
         topBar = {
             Column {
                 TopBannerComponent()
-                // إضافة شريط مؤشر الخطوات الأفقي تحت البانر العلوي مباشرة عند وجود طلب نشط
                 requestState?.let { request ->
                     StepperComponent(currentStatus = request.status)
                 }
@@ -148,14 +144,13 @@ fun TopBannerComponent() {
                 modifier = Modifier.size(28.dp)
             )
             Column {
-                Text(text = "نظام الدعم الفني الذكي", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(text = "نظام الدّم الفني الذكي", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                 Text(text = "معالجة فورية ومتابعة لحظية لطلباتكم", fontSize = 12.sp, color = TextSecondary)
             }
         }
     }
 }
 
-// 1. إضافة شريط مؤشر الخطوات الأفقي (Stepper Component)
 @Composable
 fun StepperComponent(currentStatus: SupportRequest.Status) {
     val steps = listOf("مراجعة", "موافقة", "إيداع", "اكتمال")
@@ -194,26 +189,27 @@ fun StepperComponent(currentStatus: SupportRequest.Status) {
     }
 }
 
-// 2. إضافة دالة مؤشر الحالة النبضي (Status Pulse Indicator)
 @Composable
 fun PulseIndicator(color: Color) {
     val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
     val progress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = twin(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        // تم تصحيح الـ tween بدلاً من الـ twin الخاطئة برمجياً
+        animationSpec = infiniteRepeatable(animation = tween(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
         label = "PulseProgress"
     )
     val alpha by infiniteTransition.animateFloat(
         initialValue = 0.8f,
         targetValue = 0f,
-        animationSpec = infiniteRepeatable(animation = twin(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(animation = tween(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
         label = "PulseAlpha"
     )
 
     Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(color = color, radius = size.minDimension / 2 * progress, alpha = alpha, style = stroke(2.dp.toPx()))
+            // تم تصحيح استدعاء الـ Stroke بحرف S كبير
+            drawCircle(color = color, radius = size.minDimension / 2 * progress, alpha = alpha, style = Stroke(2.dp.toPx()))
             drawCircle(color = color, radius = 4.dp.toPx())
         }
     }
@@ -266,10 +262,12 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
             shape = RoundedCornerShape(12.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
+            // تم تصحيح الـ colors وتمريرها للهيكل المعتمد داخل الـ OutlinedTextFieldDefaults
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedBorderColor = Color.Transparent,
-                containerColor = MaterialTheme.colorScheme.surface
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface
             )
         )
         
@@ -330,7 +328,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                 SupportRequest.Status.SUBMITTED -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PulseIndicator(color = Color(0xFFE65100)) // نبض برتقالي لمرحلة المراجعة أولية
+                            PulseIndicator(color = Color(0xFFE65100)) 
                             Text("جاري مراجعة الطلب...", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
                         }
                         CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
@@ -345,7 +343,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                 SupportRequest.Status.APPROVED -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PulseIndicator(color = Color(0xFF0D9488)) // نبض تيل معتمد
+                            PulseIndicator(color = Color(0xFF0D9488)) 
                             Text("تمت الموافقة على طلبك", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
                         }
                         Spacer(modifier = Modifier.height(16.dp))
@@ -450,7 +448,8 @@ fun CountdownTimerScreen(endTime: Long) {
         }
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PulseIndicator(color = Color(0xFF7B1FA2)) // نبض بنفسجي مخصص لفترة الانتظار النشطة
+            // تم تصحيح الـ tween هنا أيضاً
+            PulseIndicator(color = Color(0xFF7B1FA2)) 
             Text(text = "تمت الموافقة المبدئية، جاري موازنة الطلب...", fontSize = 14.sp, color = TextSecondary)
         }
     }
