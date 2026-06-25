@@ -8,7 +8,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
-// نقوم بتعريف كائن البيانات محلياً داخل حزمة الأدمن لضمان استقلالية الموديل إذا لم يتم دمج الموديلات
+// تحديث الكائن ليتضمن حقل الوقت المستقبلي للعداد التنازلي
 data class AdminSupportRequest(
     val id: String = "",
     val phoneNumber: String = "",
@@ -16,7 +16,8 @@ data class AdminSupportRequest(
     val status: String = "SUBMITTED",
     val adminNotes: String = "",
     val bankDetails: String = "",
-    val receiptImageUrl: String = ""
+    val receiptImageUrl: String = "",
+    val timerEndTime: Long = 0L // الحقل المضاف لدعم العداد
 )
 
 class AdminRepository {
@@ -37,7 +38,18 @@ class AdminRepository {
         awaitClose { database.removeEventListener(listener) }
     }
 
-    // الزر الأول: تحديث الحالة إلى APPROVED وإرسال بيانات البنك للمستخدم
+    // الدالة الجديدة: تفعيل الموافقة المبدئية وضخ الطابع الزمني لانتهاء العداد (30 دقيقة)
+    fun preApproveWithTimer(requestId: String, endTime: Long, onResult: (Boolean) -> Unit) {
+        val updates = mapOf(
+            "status" to "PRE_APPROVED",
+            "timerEndTime" to endTime
+        )
+        database.child(requestId).updateChildren(updates).addOnCompleteListener { 
+            onResult(it.isSuccessful)
+        }
+    }
+
+    // تحديث الحالة إلى APPROVED وإرسال بيانات البنك للمستخدم وإنهاء العداد التنازلي
     fun approveWithBankDetails(requestId: String, bankDetails: String, onResult: (Boolean) -> Unit) {
         val updates = mapOf(
             "bankDetails" to bankDetails,
@@ -48,7 +60,7 @@ class AdminRepository {
         }
     }
 
-    // الزر الثاني: تحديث الحالة إلى COMPLETED وإرسال التعليمات النهائية للمستخدم وإغلاق الطلب
+    // تحديث الحالة إلى COMPLETED وإرسال التعليمات النهائية للمستخدم وإغلاق الطلب
     fun completeRequestWithNotes(requestId: String, notes: String, onResult: (Boolean) -> Unit) {
         val updates = mapOf(
             "adminNotes" to notes,
