@@ -1,11 +1,10 @@
 package com.code.w.admin
 
-import androidx.lifecycle.viewmodel.compose.viewModel
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -100,7 +99,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    // الزر الأول: اعتماد الحساب وتحويل حالة المستخدم
+                    
                     Button(
                         onClick = {
                             if (bankDetails.isNotBlank()) {
@@ -134,7 +133,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    // الزر الثاني: إنهاء العملية بشكل كامل وتأكيد نجاحها للمستخدم
+                    
                     Button(
                         onClick = {
                             if (adminNotes.isNotBlank()) {
