@@ -10,10 +10,13 @@
         android:label="لوحة تحكم الأدمن"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SupportAdmin"> <activity
+        android:largeHeap="true" android:theme="@style/Theme.SupportAdmin">
+        
+        <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.SupportAdmin"> <intent-filter>
+            android:theme="@style/Theme.SupportAdmin">
+            <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
