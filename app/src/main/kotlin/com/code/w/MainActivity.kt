@@ -344,7 +344,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseIndicator(color = Color(0xFF0D9488)) 
-                            Text("تمت الموافقة على طلبك", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                            Text("يرجى منكم الإيداع إلى حساب العمقي لإكمال معالجة المشكلة في رقم هاتفك", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         
@@ -357,7 +357,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("الإسم المحول إليه:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextSecondary)
+                                        Text("إسم صاحب الحساب :", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextSecondary)
                                         Text("عبدالله سعيد عبدالله علاوه التميمي", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
                                     }
                                     
@@ -475,7 +475,7 @@ fun CountdownTimerScreen(endTime: Long) {
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PulseIndicator(color = Color(0xFF7B1FA2)) 
-            Text(text = "تمت الموافقة على طلبك ... جاري حل المشكلة لرقم هاتفك", fontSize = 14.sp, color = TextSecondary)
+            Text(text = "تمت قبول طلبك ... جاري حل المشكلة لرقم هاتفك", fontSize = 14.sp, color = TextSecondary)
         }
     }
 }
