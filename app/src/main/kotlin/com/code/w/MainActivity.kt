@@ -14,6 +14,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -28,8 +29,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke // تصحيح استدعاء الـ Stroke بحجم كبير
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -144,8 +146,8 @@ fun TopBannerComponent() {
                 modifier = Modifier.size(28.dp)
             )
             Column {
-                Text(text = "نظام الدّعم الفني للواتساب", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Text(text = "معالجة فورية لمشكلة عدم وصول كود التحقق و تسجيل الدخول غير متوفر", fontSize = 12.sp, color = TextSecondary)
+                Text(text = "نظام الدعم الفني للواتساب", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(text = "معالجة فورية لمشكلة عدم وصول كود التحقق sms و مشكلة تسجيل الدخول غير متوفر حاليًا.", fontSize = 12.sp, color = TextSecondary)
             }
         }
     }
@@ -195,7 +197,6 @@ fun PulseIndicator(color: Color) {
     val progress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        // تم تصحيح الـ tween بدلاً من الـ twin الخاطئة برمجياً
         animationSpec = infiniteRepeatable(animation = tween(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
         label = "PulseProgress"
     )
@@ -208,7 +209,6 @@ fun PulseIndicator(color: Color) {
 
     Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // تم تصحيح استدعاء الـ Stroke بحرف S كبير
             drawCircle(color = color, radius = size.minDimension / 2 * progress, alpha = alpha, style = Stroke(2.dp.toPx()))
             drawCircle(color = color, radius = 4.dp.toPx())
         }
@@ -224,9 +224,9 @@ fun BottomFooterComponent() {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(imageVector = Icons.Default.Call, contentDescription = "Support", tint = TextSecondary, modifier = Modifier.size(12.dp))
-            Text(text = "الدعم المباشر: +967770034578", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+            Text(text = "الدعم المباشر: 770034578", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
         }
-        Text(text = "جميع الحقوق محفوظة عبدالله التميمي © 2026", fontSize = 11.sp, color = Color(0xFF4B5563), textAlign = TextAlign.Center)
+        Text(text = "جميع الحقوق محفوظة وكالة ناسا - عبدالله التميمي © 2026", fontSize = 11.sp, color = Color(0xFF4B5563), textAlign = TextAlign.Center)
     }
 }
 
@@ -236,7 +236,8 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
     val context = LocalContext.current
     var phone by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
-    val issues = listOf("عدم وصول كود التحقق")
+    // 1. إضافة "المشكلة الثانية" ضمن خيارات القائمة المنسدلة
+    val issues = listOf("عدم وصول كود التحقق أو مكالمة", "تسجيل الدخول غير متوفر")
     var selectedIssue by remember { mutableStateOf(issues[0]) }
     val isSubmitting by viewModel.isSubmitting.collectAsState()
 
@@ -245,7 +246,7 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = "إنشاء طلب دعم جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+        Text(text = "إنشاء طلب جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
         Spacer(modifier = Modifier.height(24.dp))
 
         OutlinedTextField(
@@ -262,7 +263,6 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
             shape = RoundedCornerShape(12.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
-            // تم تصحيح الـ colors وتمريرها للهيكل المعتمد داخل الـ OutlinedTextFieldDefaults
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedBorderColor = Color.Transparent,
@@ -329,7 +329,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseIndicator(color = Color(0xFFE65100)) 
-                            Text("تم إرسال الطلب و في إنتظار قبوله من الدعم الفني .... يرجى الإنتظار قليلًا .....", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                            Text("جاري مراجعة الطلب و فحص رقم هاتفك.....", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
                         }
                         CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
                     }
@@ -344,14 +344,40 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseIndicator(color = Color(0xFF0D9488)) 
-                            Text("إيداع على حسابنا في العـمـقـي", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                            Text("تمت الموافقة على طلبك", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
                         }
                         Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // 2. تصميم واجهة الإيداع الجاهزة ببيانات الأدمن الثابتة ومبلغه المتغير المرسل من السيرفر
                         Card(modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("عبدالله سعيد عبدالله علاوه التميمي | رقم الحساب : 254293617", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(requestState?.bankDetails ?: "", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("الإسم المحول إليه:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextSecondary)
+                                        Text("عبدالله سعيد عبدالله علاوه التميمي", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                                    }
+                                    
+                                    // 3. محرك جلب وإظهار أيقونة البنك التلقائي من مجلد res/drawable/bank_logo.png
+                                    Image(
+                                        painter = painterResource(id = context.resources.getIdentifier("bank_logo", "drawable", context.packageName)),
+                                        contentDescription = "Bank Logo",
+                                        modifier = Modifier.size(45.dp).background(Color.White.copy(alpha = 0.05f), CircleShape).padding(4.dp)
+                                    )
+                                }
+                                
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(alpha = 0.08f))
+                                
+                                Text("رقم الحساب العمقي:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextSecondary)
+                                Text("254293617", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color.White.copy(alpha = 0.08f))
+                                
+                                Text("المبلغ المطلوب إيداعه:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextSecondary)
+                                Text(requestState?.bankDetails ?: "جاري الحساب...", fontSize = 22.sp, fontWeight = FontWeight.Black, color = Color(0xFF4CAF50))
                             }
                         }
                         Spacer(modifier = Modifier.height(24.dp))
@@ -375,7 +401,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             if (isUploading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                            else Text("تأكيد وإرسال الإيصال", fontWeight = FontWeight.Bold)
+                            else Text("تأكيد وإرسال إشعار الإيداع", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -384,7 +410,7 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PulseIndicator(color = Color(0xFFF57C00))
-                            Text("جاري التحقق من إيصال التحويل...", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                            Text("جاري التحقق من إشعار الإيداع...", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
                         }
                         CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
                     }
@@ -392,11 +418,11 @@ fun TrackingScreen(requestId: String, viewModel: UserSupportViewModel, requestSt
                 
                 SupportRequest.Status.COMPLETED -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("تم حل المشكلة بنجاح", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
+                        Text("تمت العملية بنجاح", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
                         Spacer(modifier = Modifier.height(16.dp))
                         Card(modifier = Modifier.fillMaxWidth().border(NeumorphicBorder, RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp)) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("ملاحظات قبل البدء بـتفيل حسابك على الواتساب :", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
+                                Text("تم حل المشكلة لرقم هاتفك بنجاح ، يجب عليك إتباع التعليمات التالية لضمان تشغيل حسابك:", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextSecondary)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(requestState?.adminNotes ?: "", fontSize = 16.sp, color = TextPrimary)
                             }
@@ -448,9 +474,8 @@ fun CountdownTimerScreen(endTime: Long) {
         }
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // تم تصحيح الـ tween هنا أيضاً
             PulseIndicator(color = Color(0xFF7B1FA2)) 
-            Text(text = "تمت قبول طلبك يرجى الإنتظار ....., fontSize = 14.sp, color = TextSecondary)
+            Text(text = "تمت الموافقة على طلبك ... جاري حل المشكلة لرقم هاتفك", fontSize = 14.sp, color = TextSecondary)
         }
     }
 }
