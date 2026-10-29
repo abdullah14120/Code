@@ -354,7 +354,7 @@ fun StepperComponent(currentStatus: SupportRequest.Status) {
         SupportRequest.Status.REJECTED -> 0
         SupportRequest.Status.PRE_APPROVED -> 1
         SupportRequest.Status.APPROVED -> 2
-        SupportRequest.Status.RECEIPT_SUBMITTED -> 3
+        SupportRequest.Status.RECEIPT_SUBMITTED -> 2
         SupportRequest.Status.PROCESSING -> 3
         SupportRequest.Status.COMPLETED -> 4
     }
@@ -784,7 +784,12 @@ fun TrackingScreen(
                     )
                 }
 
-                SupportRequest.Status.RECEIPT_SUBMITTED,
+                SupportRequest.Status.RECEIPT_SUBMITTED -> {
+                    DepositUnderReviewScreen(
+                        request = requestState
+                    )
+                }
+
                 SupportRequest.Status.PROCESSING -> {
                     ProcessingProblemScreen(
                         request = requestState
@@ -1226,6 +1231,39 @@ fun OfficialDepositScreen(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // تنبيه عدم تأكيد الإيداع من الإدارة (يظهر عندما يعيد الأدمن الطلب لخطوة الإيداع)
+        val depositNotConfirmedNote = request?.rejectionReason?.takeIf { it.isNotBlank() }
+        if (depositNotConfirmedNote != null) {
+            Surface(
+                color = DangerRed.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, DangerRed.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "⚠️ لم يتم تأكيد الإيداع",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DangerRed
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = depositNotConfirmedNote,
+                        fontSize = 13.sp,
+                        color = TextPrimary,
+                        lineHeight = 19.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "يرجى التأكد من الإيداع وإرفاق إشعار صحيح مرة أخرى.",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+
         // البطاقة العلوية باللون الأخضر الرسمي لتوضيح متطلبات إتمام الطلب
         Card(
             modifier = Modifier
@@ -1666,7 +1704,7 @@ fun OfficialDepositScreen(
                             if (success) {
                                 Toast.makeText(
                                     context,
-                                    "تم إرسال إشعار الإيداع وبدء معالجة المشكلة",
+                                    "تم إرسال إشعار الإيداع، بانتظار تأكيد الإدارة",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             } else {
@@ -1704,7 +1742,7 @@ fun OfficialDepositScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "تأكيد الإيداع وبدء معالجة المشكلة",
+                            text = "إرسال إشعار الإيداع للمراجعة",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -1747,6 +1785,68 @@ fun OfficialDepositScreen(
             containerColor = DarkSurface,
             shape = RoundedCornerShape(16.dp)
         )
+    }
+}
+
+// 4.5 واجهة انتظار تأكيد الأدمن للإيداع (بعد إرفاق السند وقبل بدء المعالجة)
+@Composable
+fun DepositUnderReviewScreen(request: SupportRequest?) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(BorderStroke(1.2.dp, AmberWarning.copy(alpha = 0.6f)), RoundedCornerShape(22.dp)),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            CircularProgressIndicator(
+                color = AmberWarning,
+                modifier = Modifier.size(46.dp),
+                strokeWidth = 4.dp
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Text(
+                text = "تم استلام إشعار الإيداع",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "بانتظار تأكيد الإدارة للإيداع للرقم (${request?.phoneNumber.orEmpty()}). ستبدأ معالجة المشكلة تلقائياً فور التأكد من صحة الإيداع.",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                textAlign = TextAlign.Center,
+                lineHeight = 19.sp
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Surface(
+                color = AmberWarning.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "⏳ يرجى إبقاء هذه الصفحة مفتوحة، سيتم تحديث الحالة تلقائياً.",
+                    fontSize = 12.sp,
+                    color = AmberWarning,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
     }
 }
 
