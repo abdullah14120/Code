@@ -43,6 +43,10 @@ class AdminSupportViewModel : ViewModel() {
         repository.confirmDepositAndStartProcessing(requestId, durationMinutes, onComplete)
     }
 
+    fun rejectDeposit(requestId: String, note: String, onComplete: (Boolean) -> Unit) {
+        repository.rejectDepositNotConfirmed(requestId, note, onComplete)
+    }
+
     fun completeRequest(requestId: String, notes: String, onComplete: (Boolean) -> Unit) {
         repository.completeRequestWithNotes(requestId, notes, onComplete)
     }
