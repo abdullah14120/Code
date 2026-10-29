@@ -1,0 +1,2 @@
+-keepattributes Signature, *Annotation*, EnclosingMethod, InnerClasses
+-keep class com.code.w.admin.repository.AdminSupportRequest { *; }
