@@ -129,6 +129,20 @@ class AdminRepository {
         }
     }
 
+    // 4.5 الأدمن لم يجد الإيداع: إعادة المستخدم لواجهة الإيداع مع تنبيه ومسح السند السابق
+    fun rejectDepositNotConfirmed(requestId: String, note: String, onResult: (Boolean) -> Unit) {
+        val updates = mapOf(
+            "status" to "APPROVED",
+            "rejectionReason" to note,
+            "receiptImageUrl" to "",
+            "receiptFileType" to "",
+            "receiptFileName" to ""
+        )
+        database.child(requestId).updateChildren(updates).addOnCompleteListener {
+            onResult(it.isSuccessful)
+        }
+    }
+
     // 5. تأكيد حل المشكلة بنجاح وإظهار علامة الصح والملاحظات للمستخدم
     fun completeRequestWithNotes(requestId: String, notes: String, onResult: (Boolean) -> Unit) {
         val updates = mapOf(
