@@ -116,7 +116,7 @@ private val OfficialGreenDark = Color(0xFF047857)
 private val OfficialGreenDeep = Color(0xFF064E3B)
 private val OfficialGreenSoft = Color(0xFFD1FAE5)
 private val AmberWarning = Color(0xFFF59E0B)
-private valDangerRed = Color(0xFFEF4444)
+private val DangerRed = Color(0xFFEF4444)
 private val TextPrimary = Color(0xFFF9FAFB)
 private val TextSecondary = Color(0xFF9CA3AF)
 private val SubtleBorder = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
@@ -378,7 +378,7 @@ fun StepperComponent(currentStatus: SupportRequest.Status) {
                 val isCompleted = !isRejected && (index < activeIndex || currentStatus == SupportRequest.Status.COMPLETED)
                 val isCurrent = index == activeIndex
                 val stepColor = when {
-                    isRejected && isCurrent -> valDangerRed
+                    isRejected && isCurrent -> DangerRed
                     isCompleted || isCurrent -> OfficialGreenBright
                     else -> Color(0xFF374151)
                 }
@@ -413,7 +413,7 @@ fun StepperComponent(currentStatus: SupportRequest.Status) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = null,
-                                    tint = valDangerRed,
+                                    tint = DangerRed,
                                     modifier = Modifier.size(14.dp)
                                 )
                             } else {
@@ -431,7 +431,7 @@ fun StepperComponent(currentStatus: SupportRequest.Status) {
                             fontSize = 10.sp,
                             fontWeight = if (isCurrent || isCompleted) FontWeight.Bold else FontWeight.Normal,
                             color = when {
-                                isRejected && isCurrent -> valDangerRed
+                                isRejected && isCurrent -> DangerRed
                                 isCurrent -> TextPrimary
                                 isCompleted -> OfficialGreenBright
                                 else -> TextSecondary
@@ -961,7 +961,7 @@ fun RejectedScreen(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(BorderStroke(1.2.dp, valDangerRed.copy(alpha = 0.5f)), RoundedCornerShape(20.dp)),
+            .border(BorderStroke(1.2.dp, DangerRed.copy(alpha = 0.5f)), RoundedCornerShape(20.dp)),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = DarkSurface)
     ) {
@@ -974,14 +974,14 @@ fun RejectedScreen(
             Box(
                 modifier = Modifier
                     .size(76.dp)
-                    .background(valDangerRed.copy(alpha = 0.15f), CircleShape)
-                    .border(2.dp, valDangerRed, CircleShape),
+                    .background(DangerRed.copy(alpha = 0.15f), CircleShape)
+                    .border(2.dp, DangerRed, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Rejected",
-                    tint = valDangerRed,
+                    tint = DangerRed,
                     modifier = Modifier.size(40.dp)
                 )
             }
@@ -992,7 +992,7 @@ fun RejectedScreen(
                 text = "اعتذار، تم رفض الطلب",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = valDangerRed
+                color = DangerRed
             )
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -1007,9 +1007,9 @@ fun RejectedScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             Surface(
-                color = valDangerRed.copy(alpha = 0.08f),
+                color = DangerRed.copy(alpha = 0.08f),
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, valDangerRed.copy(alpha = 0.3f)),
+                border = BorderStroke(1.dp, DangerRed.copy(alpha = 0.3f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -1020,14 +1020,14 @@ fun RejectedScreen(
                         Icon(
                             imageVector = Icons.Default.Warning,
                             contentDescription = null,
-                            tint = valDangerRed,
+                            tint = DangerRed,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
                             text = "سبب الرفض / ملاحظة الإدارة:",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = valDangerRed
+                            color = DangerRed
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1575,7 +1575,7 @@ fun OfficialDepositScreen(
                                     }
                                 }
                                 TextButton(onClick = { viewModel.clearAttachedReceipt() }) {
-                                    Text("تغيير", fontSize = 12.sp, color = valDangerRed)
+                                    Text("تغيير", fontSize = 12.sp, color = DangerRed)
                                 }
                             }
 
