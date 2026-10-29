@@ -58,3 +58,4 @@ jobs:
         with:
           name: Admin-App-Debug
           path: admin/build/outputs/apk/debug/admin-debug.apk
+
