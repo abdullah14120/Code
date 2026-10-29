@@ -38,24 +38,21 @@ jobs:
       - name: Run Code Lint and Tests
         run: ./gradlew test
 
-      # بناء تطبيق المستخدم (com.code.w)
-      - name: Build User App (APK)
-        run: ./gradlew :app:assembleDebug
 
-      # بناء تطبيق الأدمن (com.code.w.admin)
-      - name: Build Admin App (APK)
-        run: ./gradlew :admin:assembleDebug
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest
 
-      # رفع ملفات الـ APK الناتجة
+      - name: Build Release APKs (User & Admin)
+        run: ./gradlew :app:assembleRelease :admin:assembleRelease
+
       - name: Upload User APK
         uses: actions/upload-artifact@v4
         with:
-          name: User-App-Debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: User-App-Release-Unsigned
+          path: app/build/outputs/apk/release/*.apk
 
       - name: Upload Admin APK
         uses: actions/upload-artifact@v4
         with:
-          name: Admin-App-Debug
-          path: admin/build/outputs/apk/debug/admin-debug.apk
-
+          name: Admin-App-Release-Unsigned
+          path: admin/build/outputs/apk/release/*.apk
