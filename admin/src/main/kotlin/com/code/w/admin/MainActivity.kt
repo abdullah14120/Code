@@ -296,6 +296,8 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
     var adminNotes by remember { mutableStateOf("") }
     var rejectionNote by remember { mutableStateOf("") }
     var showRejectSection by remember { mutableStateOf(false) }
+    var depositNote by remember { mutableStateOf("") }
+    var showDepositNotConfirmed by remember { mutableStateOf(false) }
     var selectedReviewMins by remember { mutableIntStateOf(30) }
     var selectedProcessingMins by remember { mutableIntStateOf(20) }
 
@@ -311,7 +313,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
         "REJECTED" -> Triple("مرفوض", AdminRed, Color(0xFF450A0A))
         "PRE_APPROVED" -> Triple("مقبول - جاري عداد المراجعة", AdminPurple, Color(0xFF3B0764))
         "APPROVED" -> Triple("بانتظار الإيداع من المستخدم", AdminBlue, Color(0xFF082F49))
-        "RECEIPT_SUBMITTED" -> Triple("تم إرفاق إشعار الإيداع - قيد المعالجة", AdminAmber, Color(0xFF451A03))
+        "RECEIPT_SUBMITTED" -> Triple("تم إرفاق إشعار الإيداع - بانتظار تأكيدك", AdminAmber, Color(0xFF451A03))
         "PROCESSING" -> Triple("تم تأكيد الإيداع - جاري معالجة المشكلة", AdminGreenBright, AdminGreenDeep)
         "COMPLETED" -> Triple("تم حل المشكلة بنجاح ✓", AdminGreenBright, AdminGreenDeep)
         else -> Triple(request.status, AdminTextSecondary, AdminSurfaceElevated)
@@ -421,7 +423,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                 }
             }
 
-            if (request.status == "PRE_APPROVED" || request.status == "PROCESSING" || request.status == "RECEIPT_SUBMITTED") {
+            if (request.status == "PRE_APPROVED" || request.status == "PROCESSING") {
                 if (request.timerEndTime > 0L) {
                     Spacer(modifier = Modifier.height(8.dp))
                     AdminLiveTimerBadge(endTime = request.timerEndTime)
@@ -777,13 +779,13 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                         Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    // إذا كان في حالة RECEIPT_SUBMITTED يمكن للأدمن الضغط على تأكيد الإيداع لتحديث العداد أو الحل مباشرة
+                    // المستخدم الآن في واجهة انتظار؛ لن تبدأ المعالجة إلا بعد ضغط الأدمن على تأكيد الإيداع
                     if (request.status == "RECEIPT_SUBMITTED") {
                         OutlinedButton(
                             onClick = {
                                 viewModel.confirmDepositReceived(request.id, selectedProcessingMins) { success ->
                                     if (success) {
-                                        Toast.makeText(context, "تم إشعار المستخدم بتأكيد الإيداع وتجديد عداد المعالجة", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "تم تأكيد الإيداع وبدء معالجة المشكلة للمستخدم", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
@@ -792,12 +794,62 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                             border = BorderStroke(1.dp, AdminGreenBright)
                         ) {
                             Text(
-                                text = "تأكيد استلام الإيداع وتنشيط عداد المعالجة ($selectedProcessingMins د)",
+                                text = "تأكيد صحة الإيداع وبدء المعالجة ($selectedProcessingMins د)",
                                 color = AdminGreenBright,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = { showDepositNotConfirmed = !showDepositNotConfirmed },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, AdminRed)
+                        ) {
+                            Text(
+                                text = if (showDepositNotConfirmed) "إخفاء" else "لم يتم تأكيد الإيداع (تنبيه المستخدم)",
+                                color = AdminRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        if (showDepositNotConfirmed) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = depositNote,
+                                onValueChange = { depositNote = it },
+                                label = { Text("ملاحظة تظهر للمستخدم (اختياري)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AdminRed,
+                                    unfocusedBorderColor = AdminRed.copy(alpha = 0.3f)
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    val note = depositNote.trim()
+                                        .ifBlank { "لم نتمكن من تأكيد وصول الإيداع. تأكد من إتمام التحويل ثم أرفق الإشعار مرة أخرى." }
+                                    viewModel.rejectDeposit(request.id, note) { success ->
+                                        if (success) {
+                                            depositNote = ""
+                                            showDepositNotConfirmed = false
+                                            Toast.makeText(context, "تم تنبيه المستخدم بعدم تأكيد الإيداع", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AdminRed)
+                            ) {
+                                Text("إرسال تنبيه: لم يتم تأكيد الإيداع", fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(12.dp))
                     }
 
