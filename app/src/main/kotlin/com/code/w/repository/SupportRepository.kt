@@ -85,16 +85,13 @@ class SupportRepository {
     }
 
     fun uploadProcessedReceipt(requestId: String, receipt: ProcessedReceipt, onResult: (Boolean) -> Unit) {
-        val defaultProcessingSeconds = 20 * 60L // 20 دقيقة عداد معالجة افتراضي عند تأكيد الإيداع
-        val timerEndTime = System.currentTimeMillis() + (defaultProcessingSeconds * 1000L)
-
+        // لا يبدأ عداد المعالجة هنا؛ يبدأ فقط عندما يؤكد الأدمن صحة الإيداع (PROCESSING)
         val updates = mapOf(
             "receiptImageUrl" to receipt.base64Data,
             "receiptFileType" to receipt.fileType,
             "receiptFileName" to receipt.fileName,
             "status" to SupportRequest.Status.RECEIPT_SUBMITTED.name,
-            "timerEndTime" to timerEndTime,
-            "timerTotalSeconds" to defaultProcessingSeconds
+            "rejectionReason" to "" // مسح تنبيه "لم يتم تأكيد الإيداع" السابق إن وجد
         )
 
         database.child(requestId).updateChildren(updates).addOnCompleteListener { task ->
