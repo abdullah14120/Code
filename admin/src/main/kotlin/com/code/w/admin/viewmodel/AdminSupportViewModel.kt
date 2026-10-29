@@ -27,16 +27,27 @@ class AdminSupportViewModel : ViewModel() {
         }
     }
 
-    // الدالة المضافة حديثاً لمنح الموافقة المبدئية وتفعيل العداد التنازلي لدى المستخدم
-    fun preApproveRequest(requestId: String, endTime: Long, onComplete: (Boolean) -> Unit) {
-        repository.preApproveWithTimer(requestId, endTime, onComplete)
+    fun preApproveRequest(requestId: String, durationMinutes: Int, onComplete: (Boolean) -> Unit) {
+        repository.preApproveWithTimer(requestId, durationMinutes, onComplete)
+    }
+
+    fun rejectRequest(requestId: String, rejectionNote: String, onComplete: (Boolean) -> Unit) {
+        repository.rejectRequestWithNote(requestId, rejectionNote, onComplete)
     }
 
     fun approveRequest(requestId: String, bankDetails: String, onComplete: (Boolean) -> Unit) {
         repository.approveWithBankDetails(requestId, bankDetails, onComplete)
     }
 
+    fun confirmDepositReceived(requestId: String, durationMinutes: Int, onComplete: (Boolean) -> Unit) {
+        repository.confirmDepositAndStartProcessing(requestId, durationMinutes, onComplete)
+    }
+
     fun completeRequest(requestId: String, notes: String, onComplete: (Boolean) -> Unit) {
         repository.completeRequestWithNotes(requestId, notes, onComplete)
+    }
+
+    fun deleteRequest(requestId: String, onComplete: (Boolean) -> Unit) {
+        repository.deleteRequest(requestId, onComplete)
     }
 }
