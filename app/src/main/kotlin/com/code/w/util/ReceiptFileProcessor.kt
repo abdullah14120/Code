@@ -1,177 +1,95 @@
 package com.code.w.util
 
 import android.content.Context
-import android.database.Cursor
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
-import android.util.Base64
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 
-data class ProcessedReceipt(
-    val previewBitmap: Bitmap,
-    val base64Data: String,
-    val fileType: String, // "PDF" or "IMAGE"
-    val fileName: String
-)
+sealed class ReceiptValidationResult {
+    data class Valid(
+        val localFile: File,
+        val mimeType: String,
+        val sha256Hash: String,
+        val sizeBytes: Long
+    ) : ReceiptValidationResult()
+
+    data class Invalid(val errorMessageAr: String) : ReceiptValidationResult()
+}
 
 object ReceiptFileProcessor {
+    private const val MAX_FILE_SIZE_BYTES = 5L * 1024 * 1024 // 5 MB
+    private val ALLOWED_MIME_TYPES = setOf(
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/pdf"
+    )
 
-    fun processUri(context: Context, uri: Uri): ProcessedReceipt? {
+    fun validateAndPrepareReceipt(context: Context, uri: Uri): ReceiptValidationResult {
+        val contentResolver = context.contentResolver
+        val mimeType = contentResolver.getType(uri)
+            ?: return ReceiptValidationResult.Invalid("تعذر تحديد نوع الملف. يرجى اختيار صورة (JPG/PNG) أو ملف PDF.")
+
+        if (mimeType !in ALLOWED_MIME_TYPES) {
+            return ReceiptValidationResult.Invalid("نوع الملف غير مدعوم ($mimeType). الأنواع المسموحة: صور (JPG, PNG, WEBP) أو PDF فقط.")
+        }
+
+        val fileSize = getFileSize(context, uri)
+        if (fileSize <= 0L) {
+            return ReceiptValidationResult.Invalid("الملف المختار فارغ أو تالف.")
+        }
+        if (fileSize > MAX_FILE_SIZE_BYTES) {
+            val sizeMb = String.format("%.2f", fileSize / (1024.0 * 1024.0))
+            return ReceiptValidationResult.Invalid("حجم الملف ($sizeMb ميجابايت) يتجاوز الحد الأقصى المسموح به (5 ميجابايت).")
+        }
+
+        // نسخ الملف إلى تخزين التطبيق الداخلي وحساب بصمة SHA-256 في نفس الدورة
+        val pendingDir = File(context.filesDir, "pending_receipts").apply { mkdirs() }
+        val extension = when (mimeType) {
+            "application/pdf" -> "pdf"
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> "jpg"
+        }
+        val localFile = File(pendingDir, "receipt_${System.currentTimeMillis()}.$extension")
+
         return try {
-            val contentResolver = context.contentResolver
-            val mimeType = contentResolver.getType(uri) ?: ""
-            val fileName = getFileName(context, uri)
-            val isPdf = mimeType.contains("pdf", ignoreCase = true) ||
-                    fileName.endsWith(".pdf", ignoreCase = true)
-
-            if (isPdf) {
-                processPdfUri(context, uri, fileName.ifBlank { "إشعار_إيداع.pdf" })
-            } else {
-                processImageUri(context, uri, fileName.ifBlank { "إشعار_إيداع.jpg" })
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    private fun processPdfUri(context: Context, uri: Uri, fileName: String): ProcessedReceipt? {
-        val tempFile = File(context.cacheDir, "shared_receipt_${System.currentTimeMillis()}.pdf")
-        try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    input.copyTo(output)
-                }
-            } ?: return null
-
-            val pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(pfd)
-
-            if (renderer.pageCount <= 0) {
-                renderer.close()
-                pfd.close()
-                return null
-            }
-
-            // تحويل الصفحة الأولى (أو صفحتين كحد أقصى) من ملف الـ PDF إلى صورة عالية الوضوح بخلفية بيضاء
-            val pagesToRender = minOf(renderer.pageCount, 2)
-            val renderedPages = mutableListOf<Bitmap>()
-            val targetWidth = 1080
-
-            for (i in 0 until pagesToRender) {
-                val page = renderer.openPage(i)
-                val aspectRatio = page.height.toFloat() / page.width.toFloat().coerceAtLeast(1f)
-                val targetHeight = (targetWidth * aspectRatio).toInt().coerceIn(400, 2400)
-
-                val pageBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(pageBitmap)
-                canvas.drawColor(Color.WHITE)
-                page.render(pageBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                page.close()
-                renderedPages.add(pageBitmap)
-            }
-
-            renderer.close()
-            pfd.close()
-
-            val finalBitmap = if (renderedPages.size == 1) {
-                renderedPages[0]
-            } else {
-                val totalHeight = renderedPages.sumOf { it.height }
-                val combined = Bitmap.createBitmap(targetWidth, totalHeight, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(combined)
-                canvas.drawColor(Color.WHITE)
-                var currentTop = 0f
-                for (bmp in renderedPages) {
-                    canvas.drawBitmap(bmp, 0f, currentTop, null)
-                    currentTop += bmp.height
-                }
-                combined
-            }
-
-            val base64 = encodeBitmapToBase64(finalBitmap, quality = 85)
-            return ProcessedReceipt(
-                previewBitmap = finalBitmap,
-                base64Data = base64,
-                fileType = "PDF",
-                fileName = fileName
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        } finally {
-            if (tempFile.exists()) {
-                tempFile.delete()
-            }
-        }
-    }
-
-    private fun processImageUri(context: Context, uri: Uri, fileName: String): ProcessedReceipt? {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-        val originalBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-
-        val maxDimension = 1280
-        val width = originalBitmap.width
-        val height = originalBitmap.height
-        val scale = if (width > maxDimension || height > maxDimension) {
-            maxDimension.toFloat() / maxOf(width, height).toFloat()
-        } else {
-            1f
-        }
-
-        val targetWidth = (width * scale).toInt().coerceAtLeast(1)
-        val targetHeight = (height * scale).toInt().coerceAtLeast(1)
-
-        val scaledBitmap = if (scale < 1f) {
-            Bitmap.createScaledBitmap(originalBitmap, targetWidth, targetHeight, true)
-        } else {
-            originalBitmap
-        }
-
-        val whiteBgBitmap = Bitmap.createBitmap(scaledBitmap.width, scaledBitmap.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(whiteBgBitmap)
-        canvas.drawColor(Color.WHITE)
-        canvas.drawBitmap(scaledBitmap, 0f, 0f, null)
-
-        val base64 = encodeBitmapToBase64(whiteBgBitmap, quality = 82)
-        return ProcessedReceipt(
-            previewBitmap = whiteBgBitmap,
-            base64Data = base64,
-            fileType = "IMAGE",
-            fileName = fileName
-        )
-    }
-
-    private fun encodeBitmapToBase64(bitmap: Bitmap, quality: Int): String {
-        val outputStream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
-        return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-    }
-
-    private fun getFileName(context: Context, uri: Uri): String {
-        var name = ""
-        if (uri.scheme == "content") {
-            val cursor: Cursor? = context.contentResolver.query(uri, null, null, null, null)
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (index >= 0) {
-                        name = it.getString(index) ?: ""
+            val digest = MessageDigest.getInstance("SHA-256")
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(localFile).use { output ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        digest.update(buffer, 0, bytesRead)
+                        output.write(buffer, 0, bytesRead)
                     }
                 }
+            } ?: return ReceiptValidationResult.Invalid("تعذر قراءة الملف من الجهاز.")
+
+            val sha256Hex = digest.digest().joinToString("") { "%02x".format(it) }
+            ReceiptValidationResult.Valid(
+                localFile = localFile,
+                mimeType = mimeType,
+                sha256Hash = sha256Hex,
+                sizeBytes = fileSize
+            )
+        } catch (e: Exception) {
+            localFile.delete()
+            ReceiptValidationResult.Invalid("حدث خطأ أثناء معالجة الملف: ${e.localizedMessage}")
+        }
+    }
+
+    private fun getFileSize(context: Context, uri: Uri): Long {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (sizeIndex != -1 && !cursor.isNull(sizeIndex)) {
+                    return cursor.getLong(sizeIndex)
+                }
             }
         }
-        if (name.isBlank()) {
-            name = uri.lastPathSegment ?: "receipt_file"
-        }
-        return name
+        return -1L
     }
 }
