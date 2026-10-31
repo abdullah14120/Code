@@ -16,7 +16,4 @@ dependencyResolutionManagement {
 // تعديل اسم المشروع العام ليناسب الدعم الفني
 rootProject.name = "SupportSystem"
 
-// تضمين موديل تطبيق المستخدم وموديل تطبيق الأدمن
-include(":app")
-include(":admin")
 include ':app', ':admin', ':common'
