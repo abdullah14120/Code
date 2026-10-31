@@ -44,7 +44,7 @@ class UserSupportViewModel : ViewModel() {
         onFailure: () -> Unit
     ) {
         _isSubmitting.value = true
-        repository.createRequest(phoneNumber, SupportRequest.DEFAULT_ISSUE_TYPE) { requestId ->
+        repository.createRequest(phoneNumber, SupportRequest.DEFAULT_ISSUE_TYPE) { requestId: String? ->
             _isSubmitting.value = false
             if (requestId != null) onSuccess(requestId) else onFailure()
         }
@@ -53,7 +53,7 @@ class UserSupportViewModel : ViewModel() {
     fun startObservingRequest(requestId: String) {
         observeJob?.cancel()
         observeJob = viewModelScope.launch {
-            repository.observeRequest(requestId).collect { request ->
+            repository.observeRequest(requestId).collect { request: SupportRequest? ->
                 _currentRequest.value = request
             }
         }
@@ -89,7 +89,7 @@ class UserSupportViewModel : ViewModel() {
     fun confirmAndUploadReceipt(requestId: String, onComplete: (Boolean) -> Unit) {
         val receipt = _attachedReceipt.value ?: return onComplete(false)
         _isUploading.value = true
-        repository.uploadProcessedReceipt(requestId, receipt) { success ->
+        repository.uploadProcessedReceipt(requestId, receipt) { success: Boolean ->
             _isUploading.value = false
             if (success) {
                 _attachedReceipt.value = null
