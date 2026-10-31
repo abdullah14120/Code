@@ -38,6 +38,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +57,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -99,11 +102,14 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.code.w.common.model.SupportRequest as CommonSupportRequest
 import com.code.w.model.SupportRequest
 import com.code.w.util.ProcessedReceipt
 import com.code.w.viewmodel.UserSupportViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 // لوحة الألوان الرسمية الاحترافية (اللون الأخضر الرسمي المتناسق مع الواتساب ومصرف العمقي)
@@ -2224,6 +2230,84 @@ fun ProfessionalCountdownWidget(
                 color = OfficialGreenBright,
                 fontWeight = FontWeight.Medium
             )
+        }
+    }
+}
+
+/**
+ * زر التواصل المباشر مع الدعم الفني في شاشة الانتظار
+ */
+@Composable
+fun ContactSupportButton(
+    supportWhatsappNumber: String,
+    activeRequest: CommonSupportRequest,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    OutlinedButton(
+        onClick = {
+            openWhatsAppSupport(context, supportWhatsappNumber, activeRequest)
+        },
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Text(text = "تأخر الرد؟ تواصل مع الدعم الفني")
+    }
+}
+
+private fun openWhatsAppSupport(
+    context: Context,
+    whatsappNumber: String,
+    request: CommonSupportRequest
+) {
+    val message = "مرحباً، أستفسر عن طلبي رقم: ${request.id}\nرقم الهاتف: ${request.phoneNumber}\nالحالة الحالية: ${request.statusEnum.arabicLabel}"
+    val url = "https://wa.me/${whatsappNumber.replace("+", "")}?text=${Uri.encode(message)}"
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    context.startActivity(intent)
+}
+
+/**
+ * قسم عرض سجل الطلبات السابقة للمستخدم
+ */
+@Composable
+fun UserRequestsHistorySection(
+    requests: List<CommonSupportRequest>,
+    modifier: Modifier = Modifier
+) {
+    val dateFormat = SimpleDateFormat("yyyy/MM/dd - hh:mm a", Locale.getDefault())
+
+    Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
+        Text(
+            text = "سجل الطلبات السابقة",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (requests.isEmpty()) {
+            Text(text = "لا توجد طلبات سابقة.", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(requests, key = { it.id }) { req ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(text = "الرقم: ${req.phoneNumber}", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = dateFormat.format(Date(req.createdAt)),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            AssistChip(
+                                onClick = {},
+                                label = { Text(req.statusEnum.arabicLabel) }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
