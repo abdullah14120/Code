@@ -1,163 +1,116 @@
 package com.code.w.admin.repository
 
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ValueEventListener
+import com.code.w.common.model.DatabaseKeys
+import com.code.w.common.model.RequestStatus
+import com.code.w.common.model.SupportRequest
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-
-data class AdminSupportRequest(
-    val id: String = "",
-    val phoneNumber: String = "",
-    val issueType: String = "مشكلة كود التحقق أو مكالمة فائتة",
-    val status: String = "SUBMITTED",
-    val adminNotes: String = "",
-    val rejectionReason: String = "",
-    val bankDetails: String = "",
-    val receiptImageUrl: String = "",
-    val receiptFileType: String = "",
-    val receiptFileName: String = "",
-    val timerEndTime: Long = 0L,
-    val timerTotalSeconds: Long = 1800L,
-    val createdAt: Long = 0L
-)
+import kotlinx.coroutines.tasks.await
 
 class AdminRepository {
-    private val database = FirebaseDatabase.getInstance().getReference("support_requests")
+    private val db = FirebaseDatabase.getInstance()
+    private val requestsRef = db.getReference(DatabaseKeys.NODE_REQUESTS)
+    private val auth = FirebaseAuth.getInstance()
 
-    fun observeAllRequests(): Flow<List<AdminSupportRequest>> = callbackFlow {
+    /**
+     * الاستماع لجميع الطلبات مع كشف تلقائي للسندات المكررة عبر مقارنة بصمة SHA-256
+     */
+    fun observeAllRequests(): Flow<List<SupportRequest>> = callbackFlow {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val requests = snapshot.children.mapNotNull { child ->
-                    parseAdminRequestSafely(child)
+                val rawList = snapshot.children.mapNotNull { it.getValue(SupportRequest::class.java) }
+
+                // حساب تكرارات بصمة السند SHA-256 لكشف السندات المرفوعة أكثر من مرة
+                val hashCounts = rawList
+                    .filter { it.receiptSha256.isNotBlank() }
+                    .groupingBy { it.receiptSha256 }
+                    .eachCount()
+
+                val enrichedList = rawList.map { req ->
+                    val isDuplicate = req.receiptSha256.isNotBlank() && (hashCounts[req.receiptSha256] ?: 0) > 1
+                    req.copy(isDuplicateReceipt = isDuplicate)
                 }.sortedByDescending { it.createdAt }
-                trySend(requests)
+
+                trySend(enrichedList)
             }
 
             override fun onCancelled(error: DatabaseError) {
                 close(error.toException())
             }
         }
-        database.addValueEventListener(listener)
-        awaitClose { database.removeEventListener(listener) }
+        requestsRef.addValueEventListener(listener)
+        awaitClose { requestsRef.removeEventListener(listener) }
     }
 
-    private fun parseAdminRequestSafely(snapshot: DataSnapshot): AdminSupportRequest? {
-        val id = snapshot.child("id").getValue(String::class.java) ?: snapshot.key ?: return null
-        val phoneNumber = snapshot.child("phoneNumber").getValue(String::class.java).orEmpty()
-        if (phoneNumber.isBlank()) return null
+    /**
+     * تحديث حالة الطلب بأمان عبر Enum، وتسجيل ServerValue.TIMESTAMP للعداد، وتوثيق هوية الأدمن في Audit Log
+     */
+    suspend fun updateRequestStatus(
+        request: SupportRequest,
+        newStatus: RequestStatus,
+        timerDurationMinutes: Long? = null,
+        note: String = ""
+    ): Result<Unit> {
+        return try {
+            val currentStatus = request.statusEnum
+            if (!currentStatus.canTransitionTo(newStatus)) {
+                return Result.failure(
+                    IllegalStateException("لا يمكن الانتقال من حالة (${currentStatus.arabicLabel}) إلى (${newStatus.arabicLabel})")
+                )
+            }
 
-        val issueType = snapshot.child("issueType").getValue(String::class.java) ?: "مشكلة كود التحقق أو مكالمة فائتة"
-        val status = snapshot.child("status").getValue(String::class.java) ?: "SUBMITTED"
-        val adminNotes = snapshot.child("adminNotes").getValue(String::class.java).orEmpty()
-        val rejectionReason = snapshot.child("rejectionReason").getValue(String::class.java).orEmpty()
-        val bankDetails = snapshot.child("bankDetails").getValue(String::class.java).orEmpty()
-        val receiptImageUrl = snapshot.child("receiptImageUrl").getValue(String::class.java).orEmpty()
-        val receiptFileType = snapshot.child("receiptFileType").getValue(String::class.java).orEmpty()
-        val receiptFileName = snapshot.child("receiptFileName").getValue(String::class.java).orEmpty()
-        val timerEndTime = snapshot.child("timerEndTime").getValue(Long::class.java) ?: 0L
-        val timerTotalSeconds = snapshot.child("timerTotalSeconds").getValue(Long::class.java) ?: 1800L
-        val createdAt = snapshot.child("createdAt").getValue(Long::class.java) ?: 0L
+            val adminUser = auth.currentUser
+                ?: return Result.failure(IllegalStateException("يجب تسجيل دخول الأدمن أولاً"))
 
-        return AdminSupportRequest(
-            id = id,
-            phoneNumber = phoneNumber,
-            issueType = issueType,
-            status = status,
-            adminNotes = adminNotes,
-            rejectionReason = rejectionReason,
-            bankDetails = bankDetails,
-            receiptImageUrl = receiptImageUrl,
-            receiptFileType = receiptFileType,
-            receiptFileName = receiptFileName,
-            timerEndTime = timerEndTime,
-            timerTotalSeconds = timerTotalSeconds,
-            createdAt = createdAt
-        )
-    }
+            val requestRef = requestsRef.child(request.id)
+            val logId = requestRef.child(DatabaseKeys.FIELD_AUDIT_LOGS).push().key ?: System.currentTimeMillis().toString()
 
-    // 1. قبول الطلب وبدء عداد انتظار مراجعة الطلب
-    fun preApproveWithTimer(requestId: String, durationMinutes: Int, onResult: (Boolean) -> Unit) {
-        val totalSeconds = durationMinutes * 60L
-        val endTime = System.currentTimeMillis() + (totalSeconds * 1000L)
-        val updates = mapOf(
-            "status" to "PRE_APPROVED",
-            "timerEndTime" to endTime,
-            "timerTotalSeconds" to totalSeconds
-        )
-        database.child(requestId).updateChildren(updates).addOnCompleteListener {
-            onResult(it.isSuccessful)
+            val auditEntryMap = mapOf(
+                "logId" to logId,
+                "adminUid" to adminUser.uid,
+                "adminIdentifier" to (adminUser.email ?: adminUser.phoneNumber ?: adminUser.uid),
+                "fromStatus" to currentStatus.name,
+                "toStatus" to newStatus.name,
+                "note" to note,
+                "timestamp" to ServerValue.TIMESTAMP
+            )
+
+            val updates = mutableMapOf<String, Any>(
+                DatabaseKeys.FIELD_STATUS to newStatus.name,
+                DatabaseKeys.FIELD_UPDATED_AT to ServerValue.TIMESTAMP,
+                "${DatabaseKeys.FIELD_AUDIT_LOGS}/$logId" to auditEntryMap
+            )
+
+            // إذا تم تحديد عداد زمني، نستخدم وقت خادم Firebase كوقت بداية وليس ساعة جهاز الأدمن
+            if (timerDurationMinutes != null && timerDurationMinutes > 0) {
+                updates[DatabaseKeys.FIELD_TIMER_START_TIME] = ServerValue.TIMESTAMP
+                updates[DatabaseKeys.FIELD_TIMER_DURATION_MS] = timerDurationMinutes * 60 * 1000L
+            }
+
+            // إذا اكتمل الطلب أو رُفض، نسجل وقت الإغلاق لجدولة الحذف التلقائي لاحقاً
+            if (newStatus == RequestStatus.COMPLETED || newStatus == RequestStatus.REJECTED) {
+                updates[DatabaseKeys.FIELD_COMPLETED_AT] = ServerValue.TIMESTAMP
+            }
+
+            requestRef.updateChildren(updates).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
-    // 2. رفض الطلب مع ذكر ملاحظة الرفض
-    fun rejectRequestWithNote(requestId: String, rejectionNote: String, onResult: (Boolean) -> Unit) {
-        val updates = mapOf(
-            "status" to "REJECTED",
-            "rejectionReason" to rejectionNote,
-            "adminNotes" to rejectionNote
-        )
-        database.child(requestId).updateChildren(updates).addOnCompleteListener {
-            onResult(it.isSuccessful)
-        }
-    }
-
-    // 3. طلب إيداع المبلغ وإظهار واجهة الإيداع الخضراء للمستخدم
-    fun approveWithBankDetails(requestId: String, bankDetails: String, onResult: (Boolean) -> Unit) {
-        val updates = mapOf(
-            "bankDetails" to bankDetails,
-            "status" to "APPROVED"
-        )
-        database.child(requestId).updateChildren(updates).addOnCompleteListener {
-            onResult(it.isSuccessful)
-        }
-    }
-
-    // 4. زر الأدمن لتأكيد أن الإيداع قد تم وتحويل المستخدم لواجهة "جاري معالجة المشكلة" مع عداد احترافي
-    fun confirmDepositAndStartProcessing(requestId: String, durationMinutes: Int, onResult: (Boolean) -> Unit) {
-        val totalSeconds = durationMinutes * 60L
-        val endTime = System.currentTimeMillis() + (totalSeconds * 1000L)
-        val updates = mapOf(
-            "status" to "PROCESSING",
-            "timerEndTime" to endTime,
-            "timerTotalSeconds" to totalSeconds
-        )
-        database.child(requestId).updateChildren(updates).addOnCompleteListener {
-            onResult(it.isSuccessful)
-        }
-    }
-
-    // 4.5 الأدمن لم يجد الإيداع: إعادة المستخدم لواجهة الإيداع مع تنبيه ومسح السند السابق
-    fun rejectDepositNotConfirmed(requestId: String, note: String, onResult: (Boolean) -> Unit) {
-        val updates = mapOf(
-            "status" to "APPROVED",
-            "rejectionReason" to note,
-            "receiptImageUrl" to "",
-            "receiptFileType" to "",
-            "receiptFileName" to ""
-        )
-        database.child(requestId).updateChildren(updates).addOnCompleteListener {
-            onResult(it.isSuccessful)
-        }
-    }
-
-    // 5. تأكيد حل المشكلة بنجاح وإظهار علامة الصح والملاحظات للمستخدم
-    fun completeRequestWithNotes(requestId: String, notes: String, onResult: (Boolean) -> Unit) {
-        val updates = mapOf(
-            "adminNotes" to notes,
-            "status" to "COMPLETED"
-        )
-        database.child(requestId).updateChildren(updates).addOnCompleteListener {
-            onResult(it.isSuccessful)
-        }
-    }
-
-    // 6. حذف الطلب من قاعدة البيانات
-    fun deleteRequest(requestId: String, onResult: (Boolean) -> Unit) {
-        database.child(requestId).removeValue().addOnCompleteListener {
-            onResult(it.isSuccessful)
+    /**
+     * حفظ نتائج قراءة الـ OCR المقترحة في الطلب ليراها الأدمن
+     */
+    suspend fun saveOcrSuggestions(requestId: String, amount: String?, refNumber: String?) {
+        val updates = mutableMapOf<String, Any>()
+        if (!amount.isNullOrBlank()) updates[DatabaseKeys.FIELD_OCR_AMOUNT] = amount
+        if (!refNumber.isNullOrBlank()) updates[DatabaseKeys.FIELD_OCR_REF] = refNumber
+        if (updates.isNotEmpty()) {
+            requestsRef.child(requestId).updateChildren(updates).await()
         }
     }
 }
