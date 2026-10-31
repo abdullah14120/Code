@@ -1,8 +1,9 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    // تفعيل الملحق الخاص بـ Google Services للاتصال بـ Firebase
     id("com.google.gms.google-services")
+    // إضافة Crashlytics لرفع تقارير الانهيار وملفات mapping
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -11,50 +12,45 @@ android {
 
     defaultConfig {
         applicationId = "com.code.w.admin"
-        minSdk = 24 // تم رفعه إلى 24 ليتوافق مع متطلبات الـ Firebase والـ BOM المستخدمة في المشروع المشترك
+        minSdk = 24
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
+        vectorDrawables { useSupportLibrary = true }
     }
 
     buildTypes {
-    release {
-        isMinifyEnabled = true
-        isShrinkResources = true
-        proguardFiles(
-            getDefaultProguardFile("proguard-android-optimize.txt"),
-            "proguard-rules.pro"
-        )
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // رفع mapping R8 إلى Crashlytics لفك أسماء الدوال
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                mappingFileUploadEnabled = true
+            }
+        }
     }
-}
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
         jvmTarget = "17"
-        
-        // تعديل القيمة لتحديد إصدار كوتلن بدقة (1.9.23) لحل تحذير المترجم الفوري في السيرفر
         freeCompilerArgs += listOf(
             "-P",
             "plugin:androidx.compose.compiler.plugins.kotlin:suppressKotlinVersionCompatibilityCheck=1.9.23"
         )
     }
-    buildFeatures {
-        compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.10" 
-    }
+    buildFeatures { compose = true }
+    composeOptions { kotlinCompilerExtensionVersion = "1.5.10" }
     packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
 }
 
@@ -64,7 +60,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
 
-    // Jetpack Compose (BOM 2024.02.02)
+    // Jetpack Compose
     implementation(platform("androidx.compose:compose-bom:2024.02.02"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -75,12 +71,21 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Firebase & Material Design Components (متطابقة تماماً مع تطبيق المستخدم)
+    // Firebase (BOM موحّد لكل مكتبات Firebase)
     implementation(platform("com.google.firebase:firebase-bom:33.1.1"))
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
-    implementation("com.google.android.material:material:1.12.0")
     implementation("com.google.firebase:firebase-messaging-ktx")
+    // ↓ الأسطر الناقصة
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
+    implementation("com.google.firebase:firebase-config-ktx")
+
+    implementation("com.google.android.material:material:1.12.0")
+
+    // ↓ خاصة بالأدمن: قراءة السند عبر OCR وعرض الصور من الروابط
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
