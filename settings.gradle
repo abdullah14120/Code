@@ -13,7 +13,8 @@ dependencyResolutionManagement {
     }
 }
 
-// تعديل اسم المشروع العام ليناسب الدعم الفني
 rootProject.name = "SupportSystem"
 
-include ':app', ':admin', ':common'
+include(":app")
+include(":admin")
+include(":common")
