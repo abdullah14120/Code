@@ -20,10 +20,12 @@ class ReceiptUploadWorker(
 
     override suspend fun doWork(): Result {
         val requestId = inputData.getString(KEY_REQUEST_ID) ?: return Result.failure()
-        val ownerUid = inputData.getString(KEY_OWNER_UID) ?: return Result.failure()
+        val ownerUid = inputData.getString(KEY_OWNER_UID) ?: "anonymous"
         val localFilePath = inputData.getString(KEY_LOCAL_FILE_PATH) ?: return Result.failure()
         val mimeType = inputData.getString(KEY_MIME_TYPE) ?: "image/jpeg"
         val sha256 = inputData.getString(KEY_SHA256) ?: ""
+        val fileType = inputData.getString(KEY_FILE_TYPE) ?: "IMAGE"
+        val fileName = inputData.getString(KEY_FILE_NAME) ?: "receipt.jpg"
 
         val file = File(localFilePath)
         if (!file.exists()) return Result.failure()
@@ -39,11 +41,14 @@ class ReceiptUploadWorker(
             storageRef.putFile(Uri.fromFile(file), metadata).await()
             val downloadUrl = storageRef.downloadUrl.await().toString()
 
-            val updates = mapOf(
+            val updates = mapOf<String, Any>(
                 DatabaseKeys.FIELD_RECEIPT_URL to downloadUrl,
                 DatabaseKeys.FIELD_RECEIPT_STORAGE_PATH to storagePath,
                 DatabaseKeys.FIELD_RECEIPT_SHA256 to sha256,
-                DatabaseKeys.FIELD_STATUS to RequestStatus.SUBMITTED.name,
+                DatabaseKeys.FIELD_RECEIPT_FILE_TYPE to fileType,
+                DatabaseKeys.FIELD_RECEIPT_FILE_NAME to fileName,
+                DatabaseKeys.FIELD_STATUS to RequestStatus.RECEIPT_SUBMITTED.name,
+                DatabaseKeys.FIELD_REJECTION_REASON to "",
                 DatabaseKeys.FIELD_UPDATED_AT to ServerValue.TIMESTAMP
             )
 
@@ -53,7 +58,6 @@ class ReceiptUploadWorker(
                 .updateChildren(updates)
                 .await()
 
-            // حذف النسخة المؤقتة بعد نجاح الرفع
             file.delete()
             Result.success()
         } catch (e: Exception) {
@@ -67,6 +71,8 @@ class ReceiptUploadWorker(
         private const val KEY_LOCAL_FILE_PATH = "local_file_path"
         private const val KEY_MIME_TYPE = "mime_type"
         private const val KEY_SHA256 = "sha256"
+        private const val KEY_FILE_TYPE = "file_type"
+        private const val KEY_FILE_NAME = "file_name"
 
         fun enqueueUpload(
             context: Context,
@@ -74,7 +80,9 @@ class ReceiptUploadWorker(
             ownerUid: String,
             localFilePath: String,
             mimeType: String,
-            sha256: String
+            sha256: String,
+            fileType: String,
+            fileName: String
         ) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -85,7 +93,9 @@ class ReceiptUploadWorker(
                 KEY_OWNER_UID to ownerUid,
                 KEY_LOCAL_FILE_PATH to localFilePath,
                 KEY_MIME_TYPE to mimeType,
-                KEY_SHA256 to sha256
+                KEY_SHA256 to sha256,
+                KEY_FILE_TYPE to fileType,
+                KEY_FILE_NAME to fileName
             )
 
             val workRequest = OneTimeWorkRequestBuilder<ReceiptUploadWorker>()
