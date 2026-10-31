@@ -3,6 +3,7 @@ package com.code.w.admin
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -12,6 +13,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -63,6 +67,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +77,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -79,10 +86,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.code.w.admin.repository.AdminSupportRequest
 import com.code.w.admin.util.ImageDecoderUtil
 import com.code.w.admin.viewmodel.AdminSupportViewModel
+import com.code.w.common.model.AuditLogEntry
+import com.code.w.common.model.RequestStatus
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1163,6 +1174,167 @@ fun AdminLiveTimerBadge(endTime: Long) {
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (timeLeft > 0) AdminGreenBright else AdminAmber
+            )
+        }
+    }
+}
+
+/**
+ * شريط عدّادات الحالات والفلترة في أعلى شاشة الأدمن
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StatusFilterCountersRow(
+    statusCounts: Map<RequestStatus, Int>,
+    selectedStatus: RequestStatus?,
+    onSelectStatus: (RequestStatus?) -> Unit
+) {
+    val totalCount = statusCounts.values.sum()
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp)
+    ) {
+        item {
+            FilterChip(
+                selected = selectedStatus == null,
+                onClick = { onSelectStatus(null) },
+                label = { Text("الكل ($totalCount)") }
+            )
+        }
+        items(RequestStatus.entries) { status ->
+            val count = statusCounts[status] ?: 0
+            FilterChip(
+                selected = selectedStatus == status,
+                onClick = { onSelectStatus(status) },
+                label = { Text("${status.arabicLabel} ($count)") }
+            )
+        }
+    }
+}
+
+/**
+ * نافذة معاينة السند مع دعم التكبير والتحريك باللمس (Pinch-to-Zoom) وزر المشاركة
+ */
+@Composable
+fun ZoomableReceiptDialog(
+    receiptUrl: String,
+    phoneNumber: String,
+    isDuplicate: Boolean,
+    ocrAmount: String,
+    ocrRefNumber: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f),
+            shape = MaterialTheme.shapes.large,
+            tonalElevation = 6.dp
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                if (isDuplicate) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    ) {
+                        Text(
+                            text = "تحذير: بصمة هذا السند (SHA-256) مكررة في طلب آخر!",
+                            color = Color(0xFFC62828),
+                            modifier = Modifier.padding(8.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+
+                if (ocrAmount.isNotBlank() || ocrRefNumber.isNotBlank()) {
+                    Text(
+                        text = "قراءة تلقائية مقترحة (OCR): المبلغ: ${ocrAmount.ifBlank { "غير واضح" }} | المرجع: ${ocrRefNumber.ifBlank { "غير واضح" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(Color.Black)
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                scale = (scale * zoom).coerceIn(1f, 5f)
+                                if (scale > 1f) {
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                } else {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = receiptUrl,
+                        contentDescription = "صورة السند",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("إغلاق")
+                    }
+                    Button(onClick = { shareReceiptLink(context, receiptUrl, phoneNumber) }) {
+                        Text("مشاركة السند")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun shareReceiptLink(context: Context, receiptUrl: String, phoneNumber: String) {
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "سند إيداع للرقم $phoneNumber")
+        putExtra(Intent.EXTRA_TEXT, "سند الإيداع الخاص بالرقم $phoneNumber:\n$receiptUrl")
+    }
+    context.startActivity(Intent.createChooser(shareIntent, "مشاركة السند عبر"))
+}
+
+/**
+ * مكون عرض سجل الإجراءات (Audit Logs) داخل بطاقة الطلب في تطبيق الأدمن
+ */
+@Composable
+fun AuditLogsSection(auditLogs: Map<String, AuditLogEntry>) {
+    if (auditLogs.isEmpty()) return
+    val dateFormat = SimpleDateFormat("MM/dd hh:mm a", Locale.getDefault())
+    val sortedLogs = auditLogs.values.sortedByDescending { it.timestamp }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text("سجل الإجراءات:", style = MaterialTheme.typography.labelLarge)
+        sortedLogs.forEach { log ->
+            val timeStr = if (log.timestamp > 0) dateFormat.format(Date(log.timestamp)) else ""
+            Text(
+                text = "• [${log.adminIdentifier}] حوّل الحالة من ${log.fromStatus} إلى ${log.toStatus} ($timeStr)",
+                style = MaterialTheme.typography.bodySmall
             )
         }
     }
