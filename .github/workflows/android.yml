@@ -1,4 +1,4 @@
-name: Android CI - Build & Test
+name: Android CI/CD Pipeline
 
 on:
   push:
@@ -8,53 +8,45 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-and-build:
-    name: Run Unit Tests & Build APKs
+  build:
+    name: Build Apps (User & Admin)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'zulu'
+          cache: gradle
 
-      - name: Generate gradle-wrapper.jar Automatically
+      - name: Validate or Generate Gradle Wrapper
         run: |
-          gradle wrapper --gradle-version 8.4
-          chmod +x gradlew
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Gradle wrapper jar missing, generating..."
+            gradle wrapper
+          fi
 
-      - name: Setup Gradle Cache
-        uses: gradle/actions/setup-gradle@v4
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x ./gradlew
 
-      - name: Run Unit Tests (:common, :app, :admin)
-        run: ./gradlew :common:testDebugUnitTest :app:testDebugUnitTest :admin:testDebugUnitTest --stacktrace
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Upload Unit Test Reports
-        if: always()
+      - name: Build Release APKs (User & Admin)
+        run: ./gradlew :app:assembleRelease :admin:assembleRelease --stacktrace
+
+      - name: Upload User APK
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-reports
-          path: |
-            common/build/reports/tests/testDebugUnitTest/
-            app/build/reports/tests/testDebugUnitTest/
-            admin/build/reports/tests/testDebugUnitTest/
-          if-no-files-found: ignore
+          name: User-App-Release-Unsigned
+          path: app/build/outputs/apk/release/*.apk
 
-      - name: Build Debug APKs (:app and :admin)
-        run: ./gradlew :app:assembleDebug :admin:assembleDebug --stacktrace
-
-      - name: Upload User App APK (:app)
+      - name: Upload Admin APK
         uses: actions/upload-artifact@v4
         with:
-          name: user-app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-
-      - name: Upload Admin App APK (:admin)
-        uses: actions/upload-artifact@v4
-        with:
-          name: admin-app-debug-apk
-          path: admin/build/outputs/apk/debug/*.apk
+          name: Admin-App-Release-Unsigned
+          path: admin/build/outputs/apk/release/*.apk
