@@ -38,8 +38,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,7 +55,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -102,15 +99,21 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.code.w.common.model.SupportRequest as CommonSupportRequest
 import com.code.w.model.SupportRequest
 import com.code.w.util.ProcessedReceipt
 import com.code.w.viewmodel.UserSupportViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.util.Locale
+import com.code.w.common.model.DatabaseKeys
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.google.firebase.remoteconfig.remoteConfigSettings
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 // لوحة الألوان الرسمية الاحترافية (اللون الأخضر الرسمي المتناسق مع الواتساب ومصرف العمقي)
 private val DarkBackground = Color(0xFF0B141A)
@@ -167,12 +170,14 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingShareIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND) {
-            val sharedUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val streamUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
                 @Suppress("DEPRECATION")
-                intent.getParcelableExtra(Intent.EXTRA_STREAM)
-            } ?: intent.clipData?.let { clip ->
+                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+
+            val sharedUri: Uri? = streamUri ?: intent.clipData?.let { clip ->
                 if (clip.itemCount > 0) clip.getItemAt(0).uri else null
             }
 
@@ -195,6 +200,46 @@ fun OfficialGreenTheme(content: @Composable () -> Unit) {
         surfaceVariant = DarkSurfaceElevated
     )
     MaterialTheme(colorScheme = colorScheme, content = content)
+}
+
+private fun openSupportContact(context: Context, requestPhone: String, statusLabel: String) {
+    val supportNumber = FirebaseRemoteConfig.getInstance()
+        .getString("support_whatsapp_number")
+        .ifBlank { "967770034578" }
+    val message = "مرحباً، أستفسر عن طلب معالجة الرقم: $requestPhone\nالحالة الحالية: $statusLabel"
+    val whatsappUri = Uri.parse("https://wa.me/${supportNumber.replace("+", "")}?text=${Uri.encode(message)}")
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, whatsappUri))
+    } catch (e: Exception) {
+        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:770034578")))
+    }
+}
+
+@Composable
+fun ContactSupportWaitingButton(phoneNumber: String, statusLabel: String) {
+    val context = LocalContext.current
+    OutlinedButton(
+        onClick = { openSupportContact(context, phoneNumber, statusLabel) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(46.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, OfficialGreenBright.copy(alpha = 0.5f))
+    ) {
+        Icon(
+            imageVector = Icons.Default.Call,
+            contentDescription = null,
+            tint = OfficialGreenBright,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "تأخر الرد؟ تواصل مع الدعم الفني الآن",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = OfficialGreenBright
+        )
+    }
 }
 
 private fun copyToClipboard(context: Context, label: String, text: String) {
@@ -231,7 +276,7 @@ fun AppNavigationRouter(
                 } else {
                     Toast.makeText(
                         context,
-                        "تعذر قراءة الملف المشارك، يرجى التأكد من أنه ملف PDF أو صورة صالحة",
+                        "الملف غير مدعوم أو يتجاوز 5 ميجابايت. يرجى مشاركة ملف PDF أو صورة (JPG/PNG) بحجم أقل من 5MB",
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -522,7 +567,7 @@ fun BottomFooterComponent() {
                     modifier = Modifier.size(13.dp)
                 )
                 Text(
-                    text = "الدعم الفني المباشر: 770034578",
+                    text = "الدعم الفني المباشر: ${FirebaseRemoteConfig.getInstance().getString("support_whatsapp_number").ifBlank { "770034578" }}",
                     fontSize = 12.sp,
                     color = TextSecondary,
                     fontWeight = FontWeight.Medium
@@ -681,6 +726,10 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                     )
                 )
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                UserRequestsHistoryCard(onSelectRequest = onSuccess)
+
                 Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
@@ -725,6 +774,91 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// سجل الطلبات السابقة للمستخدم (دالة مستقلة على مستوى الملف)
+@Composable
+fun UserRequestsHistoryCard(onSelectRequest: (String) -> Unit) {
+    var historyList by remember { mutableStateOf<List<SupportRequest>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return@LaunchedEffect
+        val ref = FirebaseDatabase.getInstance().getReference(DatabaseKeys.NODE_REQUESTS)
+            .orderByChild(DatabaseKeys.FIELD_OWNER_UID)
+            .equalTo(uid)
+
+        ref.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val list = snapshot.children.mapNotNull { snap ->
+                    val id = snap.child(DatabaseKeys.FIELD_ID).getValue(String::class.java) ?: snap.key.orEmpty()
+                    val phone = snap.child(DatabaseKeys.FIELD_PHONE_NUMBER).getValue(String::class.java).orEmpty()
+                    val statusStr = snap.child(DatabaseKeys.FIELD_STATUS).getValue(String::class.java) ?: "SUBMITTED"
+                    val status = runCatching { SupportRequest.Status.valueOf(statusStr) }
+                        .getOrDefault(SupportRequest.Status.SUBMITTED)
+                    val createdAt = snap.child(DatabaseKeys.FIELD_CREATED_AT).getValue(Long::class.java) ?: 0L
+                    if (phone.isBlank()) null else SupportRequest(id = id, phoneNumber = phone, status = status, createdAt = createdAt)
+                }.sortedByDescending { it.createdAt }
+                historyList = list
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
+    if (historyList.isNotEmpty()) {
+        val sdf = remember { SimpleDateFormat("yyyy/MM/dd - hh:mm a", Locale.US) }
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(SubtleBorder, RoundedCornerShape(18.dp)),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "سجل طلباتك السابقة (${historyList.size})",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OfficialGreenBright
+                )
+                historyList.take(5).forEach { item ->
+                    Surface(
+                        color = DarkSurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectRequest(item.id) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(item.phoneNumber, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                if (item.createdAt > 0L) {
+                                    Text(sdf.format(Date(item.createdAt)), fontSize = 11.sp, color = TextSecondary)
+                                }
+                            }
+                            Text(
+                                text = when (item.status) {
+                                    SupportRequest.Status.COMPLETED -> "مكتمل ✓"
+                                    SupportRequest.Status.REJECTED -> "مرفوض ✖"
+                                    else -> "قيد المتابعة ←"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (item.status) {
+                                    SupportRequest.Status.COMPLETED -> OfficialGreenBright
+                                    SupportRequest.Status.REJECTED -> DangerRed
+                                    else -> AmberWarning
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -947,6 +1081,12 @@ fun WaitingApprovalScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            ContactSupportWaitingButton(
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "بانتظار مراجعة وموافقة الإدارة"
+            )
+            Spacer(modifier = Modifier.height(10.dp))
 
             TextButton(onClick = onCancelSession) {
                 Text(
@@ -1185,6 +1325,13 @@ fun ReviewTimerScreen(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            ContactSupportWaitingButton(
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "عداد انتظار المراجعة"
+            )
         }
     }
 }
@@ -1210,7 +1357,7 @@ fun OfficialDepositScreen(
         uri?.let {
             viewModel.processReceiptUri(context, it, fromExternalShare = false) { success ->
                 if (!success) {
-                    Toast.makeText(context, "تعذر قراءة الملف المختار", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "حجم الملف يتجاوز 5 ميجابايت أو صيغته غير مدعومة (المسموح: PDF أو صورة)", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1223,15 +1370,32 @@ fun OfficialDepositScreen(
         uri?.let {
             viewModel.processReceiptUri(context, it, fromExternalShare = false) { success ->
                 if (!success) {
-                    Toast.makeText(context, "تعذر قراءة الصورة المختارة", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "حجم الملف يتجاوز 5 ميجابايت أو صيغته غير مدعومة (المسموح: PDF أو صورة)", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
     val amountText = request?.bankDetails?.takeIf { it.isNotBlank() } ?: "يحدد من الإدارة"
-    val accountName = "عبدالله سعيد عبدالله علاوه التميمي"
-    val accountNumber = "254293617"
+ val remoteConfig = remember { FirebaseRemoteConfig.getInstance() }
+    var bankName by remember {
+        mutableStateOf(remoteConfig.getString("deposit_bank_name").ifBlank { "شركة العمقي وإخوانه للصرافة" })
+    }
+    var accountName by remember {
+        mutableStateOf(remoteConfig.getString("deposit_account_name").ifBlank { "عبدالله سعيد عبدالله علاوه التميمي" })
+    }
+    var accountNumber by remember {
+        mutableStateOf(remoteConfig.getString("deposit_account_number").ifBlank { "254293617" })
+    }
+
+    LaunchedEffect(Unit) {
+        remoteConfig.setConfigSettingsAsync(remoteConfigSettings { minimumFetchIntervalInSeconds = 3600 })
+        remoteConfig.fetchAndActivate().addOnSuccessListener {
+            bankName = remoteConfig.getString("deposit_bank_name").ifBlank { "شركة العمقي وإخوانه للصرافة" }
+            accountName = remoteConfig.getString("deposit_account_name").ifBlank { "عبدالله سعيد عبدالله علاوه التميمي" }
+            accountNumber = remoteConfig.getString("deposit_account_number").ifBlank { "254293617" }
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1369,7 +1533,7 @@ fun OfficialDepositScreen(
                         }
                         Column {
                             Text(
-                                text = "شركة العمقي وإخوانه للصرافة",
+                                text = bankName,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = OfficialGreenBright
@@ -1852,6 +2016,11 @@ fun DepositUnderReviewScreen(request: SupportRequest?) {
                     modifier = Modifier.padding(12.dp)
                 )
             }
+            Spacer(modifier = Modifier.height(14.dp))
+            ContactSupportWaitingButton(
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "بانتظار تأكيد الإيداع"
+            )
         }
     }
 }
@@ -1964,6 +2133,11 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            ContactSupportWaitingButton(
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "جاري معالجة المشكلة"
+            )
         }
     }
 }
@@ -2158,11 +2332,22 @@ fun ProfessionalCountdownWidget(
     labelText: String
 ) {
     var timeLeft by remember(endTime) { mutableLongStateOf(0L) }
+    var serverTimeOffset by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(key1 = endTime) {
+    LaunchedEffect(Unit) {
+        val offsetRef = FirebaseDatabase.getInstance().getReference(DatabaseKeys.SERVER_TIME_OFFSET)
+        offsetRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                serverTimeOffset = snapshot.getValue(Long::class.java) ?: 0L
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
+    LaunchedEffect(key1 = endTime, key2 = serverTimeOffset) {
         while (true) {
-            val now = System.currentTimeMillis()
-            val diff = endTime - now
+            val estimatedServerNow = System.currentTimeMillis() + serverTimeOffset
+            val diff = endTime - estimatedServerNow
             timeLeft = if (diff > 0) diff / 1000L else 0L
             if (timeLeft <= 0L) break
             delay(1000L)
@@ -2230,84 +2415,6 @@ fun ProfessionalCountdownWidget(
                 color = OfficialGreenBright,
                 fontWeight = FontWeight.Medium
             )
-        }
-    }
-}
-
-/**
- * زر التواصل المباشر مع الدعم الفني في شاشة الانتظار
- */
-@Composable
-fun ContactSupportButton(
-    supportWhatsappNumber: String,
-    activeRequest: CommonSupportRequest,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    OutlinedButton(
-        onClick = {
-            openWhatsAppSupport(context, supportWhatsappNumber, activeRequest)
-        },
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Text(text = "تأخر الرد؟ تواصل مع الدعم الفني")
-    }
-}
-
-private fun openWhatsAppSupport(
-    context: Context,
-    whatsappNumber: String,
-    request: CommonSupportRequest
-) {
-    val message = "مرحباً، أستفسر عن طلبي رقم: ${request.id}\nرقم الهاتف: ${request.phoneNumber}\nالحالة الحالية: ${request.statusEnum.arabicLabel}"
-    val url = "https://wa.me/${whatsappNumber.replace("+", "")}?text=${Uri.encode(message)}"
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-    context.startActivity(intent)
-}
-
-/**
- * قسم عرض سجل الطلبات السابقة للمستخدم
- */
-@Composable
-fun UserRequestsHistorySection(
-    requests: List<CommonSupportRequest>,
-    modifier: Modifier = Modifier
-) {
-    val dateFormat = SimpleDateFormat("yyyy/MM/dd - hh:mm a", Locale.getDefault())
-
-    Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
-        Text(
-            text = "سجل الطلبات السابقة",
-            style = MaterialTheme.typography.titleMedium
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (requests.isEmpty()) {
-            Text(text = "لا توجد طلبات سابقة.", style = MaterialTheme.typography.bodyMedium)
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(requests, key = { it.id }) { req ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(text = "الرقم: ${req.phoneNumber}", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    text = dateFormat.format(Date(req.createdAt)),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            AssistChip(
-                                onClick = {},
-                                label = { Text(req.statusEnum.arabicLabel) }
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }
