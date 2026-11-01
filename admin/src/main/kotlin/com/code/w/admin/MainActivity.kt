@@ -145,7 +145,10 @@ data class AuditLogUiItem(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+if (android.os.Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 102)
+        }
+        
         // التأكد من تسجيل دخول جلسة الأدمن للوصول الآمن إلى القاعدة و Storage
         val auth = FirebaseAuth.getInstance()
         if (auth.currentUser == null) {
