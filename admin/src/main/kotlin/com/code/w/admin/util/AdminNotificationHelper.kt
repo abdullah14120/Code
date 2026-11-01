@@ -14,12 +14,19 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.code.w.admin.MainActivity
+import java.util.Collections
 
 object AdminNotificationHelper {
     private const val CHANNEL_ID = "admin_alerts_channel_v1"
     private const val CHANNEL_NAME = "تنبيهات الطلبات والسندات الجديدة"
 
+    // منع إطلاق نفس الإشعار مرتين من الـ ViewModel والـ Service معاً
+    private val notifiedEvents = Collections.synchronizedSet(mutableSetOf<String>())
+
     fun notifyNewRequest(context: Context, requestId: String, phoneNumber: String) {
+        val eventKey = "NEW_$requestId"
+        if (!notifiedEvents.add(eventKey)) return
+
         showNotification(
             context = context,
             notificationId = requestId.hashCode(),
@@ -34,6 +41,9 @@ object AdminNotificationHelper {
         phoneNumber: String,
         fileType: String
     ) {
+        val eventKey = "RECEIPT_${requestId}_${System.currentTimeMillis() / 15000}"
+        if (!notifiedEvents.add(eventKey)) return
+
         val attachmentLabel = if (fileType == "PDF") "ملف PDF" else "صورة إشعار"
         showNotification(
             context = context,
@@ -50,8 +60,6 @@ object AdminNotificationHelper {
         body: String
     ) {
         createNotificationChannel(context)
-
-        // تشغيل صوت التنبيه مباشرة حتى لو كان التطبيق مفتوحاً أمام الأدمن
         playAlertSound(context)
 
         if (Build.VERSION.SDK_INT >= 33) {
@@ -80,6 +88,7 @@ object AdminNotificationHelper {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
             .setSound(soundUri)
             .setDefaults(NotificationCompat.DEFAULT_VIBRATE or NotificationCompat.DEFAULT_LIGHTS)
             .setAutoCancel(true)
