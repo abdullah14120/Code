@@ -42,13 +42,14 @@ class UserSupportViewModel : ViewModel() {
     private val _isSharedFromExternalApp = MutableStateFlow(false)
     val isSharedFromExternalApp: StateFlow<Boolean> = _isSharedFromExternalApp.asStateFlow()
 
-    fun sendSupportRequest(
+   fun sendSupportRequest(
         phoneNumber: String,
+        issueType: String = SupportRequest.DEFAULT_ISSUE_TYPE,
         onSuccess: (String) -> Unit,
         onFailure: () -> Unit
     ) {
         _isSubmitting.value = true
-        repository.createRequest(phoneNumber, SupportRequest.DEFAULT_ISSUE_TYPE) { requestId: String? ->
+        repository.createRequest(phoneNumber, issueType) { requestId: String? ->
             _isSubmitting.value = false
             if (requestId != null) onSuccess(requestId) else onFailure()
         }
