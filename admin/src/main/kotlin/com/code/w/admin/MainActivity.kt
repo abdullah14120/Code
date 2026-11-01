@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -29,7 +31,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -39,14 +40,18 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -75,6 +80,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -88,13 +94,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.code.w.admin.repository.AdminSupportRequest
 import com.code.w.admin.util.ImageDecoderUtil
 import com.code.w.admin.viewmodel.AdminSupportViewModel
-import com.code.w.common.model.AuditLogEntry
+import com.code.w.common.model.DatabaseKeys
 import com.code.w.common.model.RequestStatus
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -112,9 +129,29 @@ private val AdminRed = Color(0xFFEF4444)
 private val AdminTextPrimary = Color(0xFFF9FAFB)
 private val AdminTextSecondary = Color(0xFF9CA3AF)
 
+data class OcrSuggestion(
+    val suggestedAmount: String = "",
+    val suggestedRefNumber: String = "",
+    val rawText: String = ""
+)
+
+data class AuditLogUiItem(
+    val adminUid: String = "",
+    val toStatus: String = "",
+    val note: String = "",
+    val timestamp: Long = 0L
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // التأكد من تسجيل دخول جلسة الأدمن للوصول الآمن إلى القاعدة و Storage
+        val auth = FirebaseAuth.getInstance()
+        if (auth.currentUser == null) {
+            auth.signInAnonymously()
+        }
+
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 val colorScheme = darkColorScheme(
@@ -139,10 +176,72 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun copyPhoneToClipboard(context: Context, phone: String) {
+private fun copyTextToClipboard(context: Context, label: String, value: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("Phone", phone))
-    Toast.makeText(context, "تم نسخ الرقم: $phone", Toast.LENGTH_SHORT).show()
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+    Toast.makeText(context, "تم نسخ $label: $value", Toast.LENGTH_SHORT).show()
+}
+
+private fun shareReceiptDetails(
+    context: Context,
+    request: AdminSupportRequest,
+    ocrSuggestion: OcrSuggestion?
+) {
+    val shareBody = buildString {
+        appendLine("بيانات سند الإيداع - رقم الهاتف: ${request.phoneNumber}")
+        appendLine("معرف الطلب: ${request.id}")
+        if (request.bankDetails.isNotBlank()) {
+            appendLine("المبلغ المطلوب: ${request.bankDetails}")
+        }
+        if (!ocrSuggestion?.suggestedAmount.isNullOrBlank()) {
+            appendLine("المبلغ المستخرج (OCR): ${ocrSuggestion?.suggestedAmount}")
+        }
+        if (!ocrSuggestion?.suggestedRefNumber.isNullOrBlank()) {
+            appendLine("رقم العملية المستخرج (OCR): ${ocrSuggestion?.suggestedRefNumber}")
+        }
+        if (request.receiptImageUrl.startsWith("http", ignoreCase = true)) {
+            appendLine("رابط السند في Storage:")
+            appendLine(request.receiptImageUrl)
+        }
+    }
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "سند إيداع للرقم ${request.phoneNumber}")
+        putExtra(Intent.EXTRA_TEXT, shareBody)
+    }
+    context.startActivity(Intent.createChooser(intent, "مشاركة بيانات السند عبر"))
+}
+
+private suspend fun runReceiptOcr(bitmap: Bitmap): OcrSuggestion {
+    return try {
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val visionText = recognizer.process(image).await()
+        val fullText = visionText.text
+
+        val amountRegex = Regex(
+            """(?:Amount|المبلغ|مبلغ|ريال|YER|SAR)[\s:]*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]{3,10})""",
+            RegexOption.IGNORE_CASE
+        )
+        val refRegex = Regex(
+            """(?:Ref|Reference|رقم العملية|رقم السند|المرجع|اشعار|إشعار)[\s:#-]*([0-9A-Z]{6,18})""",
+            RegexOption.IGNORE_CASE
+        )
+        val fallbackLongDigits = Regex("""\b([0-9]{7,16})\b""")
+
+        val amount = amountRegex.find(fullText)?.groupValues?.getOrNull(1).orEmpty()
+        val ref = refRegex.find(fullText)?.groupValues?.getOrNull(1)
+            ?: fallbackLongDigits.find(fullText)?.groupValues?.getOrNull(1).orEmpty()
+
+        OcrSuggestion(
+            suggestedAmount = amount,
+            suggestedRefNumber = ref,
+            rawText = fullText
+        )
+    } catch (_: Exception) {
+        OcrSuggestion()
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -153,22 +252,52 @@ fun AdminDashboardScreen() {
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("ALL") }
 
-    val filteredRequests = remember(requests, searchQuery, selectedFilter) {
+    // كشف السندات المكررة عبر بصمة SHA-256 أو تطابق محتوى السند
+    val duplicateReceiptIds = remember(requests) {
+        val byHash = requests
+            .filter { it.receiptSha256.isNotBlank() }
+            .groupBy { it.receiptSha256 }
+            .filterValues { it.size > 1 }
+            .values.flatten().map { it.id }
+
+        val byUrl = requests
+            .filter { it.receiptImageUrl.isNotBlank() }
+            .groupBy { it.receiptImageUrl }
+            .filterValues { it.size > 1 }
+            .values.flatten().map { it.id }
+
+        (byHash + byUrl).toSet()
+    }
+
+    val newCount = requests.count { it.status == RequestStatus.SUBMITTED.name }
+    val preApprovedCount = requests.count { it.status == RequestStatus.PRE_APPROVED.name }
+    val approvedCount = requests.count { it.status == RequestStatus.APPROVED.name }
+    val receiptSubmittedCount = requests.count { it.status == RequestStatus.RECEIPT_SUBMITTED.name }
+    val processingCount = requests.count { it.status == RequestStatus.PROCESSING.name }
+    val completedCount = requests.count { it.status == RequestStatus.COMPLETED.name }
+    val rejectedCount = requests.count { it.status == RequestStatus.REJECTED.name }
+    val duplicatesCount = requests.count { it.isDuplicateReceipt || it.id in duplicateReceiptIds }
+
+    val filteredRequests = remember(requests, searchQuery, selectedFilter, duplicateReceiptIds) {
         requests.filter { req ->
-            val matchesSearch = searchQuery.isBlank() || req.phoneNumber.contains(searchQuery.trim())
+            val q = searchQuery.trim()
+            val matchesSearch = q.isBlank() ||
+                req.phoneNumber.contains(q, ignoreCase = true) ||
+                req.id.contains(q, ignoreCase = true) ||
+                req.bankDetails.contains(q, ignoreCase = true)
+
             val matchesFilter = when (selectedFilter) {
-                "NEW" -> req.status == "SUBMITTED"
-                "REVIEW_DEPOSIT" -> req.status == "PRE_APPROVED" || req.status == "APPROVED"
-                "PROCESSING" -> req.status == "RECEIPT_SUBMITTED" || req.status == "PROCESSING"
-                "DONE" -> req.status == "COMPLETED" || req.status == "REJECTED"
+                "NEW" -> req.status == RequestStatus.SUBMITTED.name
+                "REVIEW_DEPOSIT" -> req.status == RequestStatus.PRE_APPROVED.name || req.status == RequestStatus.APPROVED.name
+                "RECEIPT_WAIT" -> req.status == RequestStatus.RECEIPT_SUBMITTED.name
+                "PROCESSING" -> req.status == RequestStatus.PROCESSING.name
+                "DONE" -> req.status == RequestStatus.COMPLETED.name || req.status == RequestStatus.REJECTED.name
+                "DUPLICATES" -> req.isDuplicateReceipt || req.id in duplicateReceiptIds
                 else -> true
             }
             matchesSearch && matchesFilter
         }
     }
-
-    val newCount = requests.count { it.status == "SUBMITTED" }
-    val processingCount = requests.count { it.status == "RECEIPT_SUBMITTED" || it.status == "PROCESSING" }
 
     Scaffold(
         containerColor = AdminDarkBg,
@@ -195,8 +324,8 @@ fun AdminDashboardScreen() {
                                 color = AdminTextPrimary
                             )
                             Text(
-                                text = "إجمالي الطلبات: ${requests.size} | جديد: $newCount | قيد المعالجة: $processingCount",
-                                fontSize = 12.sp,
+                                text = "الإجمالي: ${requests.size} | جديد: $newCount | بانتظار تأكيد السند: $receiptSubmittedCount | معالجة: $processingCount | مكتمل: $completedCount",
+                                fontSize = 11.sp,
                                 color = AdminGreenBright
                             )
                         }
@@ -207,7 +336,7 @@ fun AdminDashboardScreen() {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("ابحث برقم الهاتف (7xxxxxxxx)...", fontSize = 13.sp) },
+                        placeholder = { Text("ابحث برقم الهاتف (7xxxxxxxx) أو معرف الطلب أو المبلغ...", fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Search,
@@ -247,21 +376,24 @@ fun AdminDashboardScreen() {
                     ) {
                         val filters = listOf(
                             "ALL" to "الكل (${requests.size})",
-                            "NEW" to "طلبات جديدة ($newCount)",
-                            "REVIEW_DEPOSIT" to "مراجعة وإيداع (${requests.count { it.status == "PRE_APPROVED" || it.status == "APPROVED" }})",
+                            "NEW" to "جديد ($newCount)",
+                            "REVIEW_DEPOSIT" to "مراجعة/إيداع (${preApprovedCount + approvedCount})",
+                            "RECEIPT_WAIT" to "سندات بانتظار التأكيد ($receiptSubmittedCount)",
                             "PROCESSING" to "قيد المعالجة ($processingCount)",
-                            "DONE" to "مكتمل/مرفوض (${requests.count { it.status == "COMPLETED" || it.status == "REJECTED" }})"
+                            "DONE" to "مكتمل/مرفوض (${completedCount + rejectedCount})",
+                            "DUPLICATES" to "سندات مكررة ($duplicatesCount)"
                         )
                         filters.forEach { (key, label) ->
+                            val isDupChip = key == "DUPLICATES" && duplicatesCount > 0
                             FilterChip(
                                 selected = selectedFilter == key,
                                 onClick = { selectedFilter = key },
                                 label = { Text(label, fontSize = 12.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = AdminGreenPrimary,
+                                    selectedContainerColor = if (isDupChip) AdminRed else AdminGreenPrimary,
                                     selectedLabelColor = Color.White,
                                     containerColor = AdminSurfaceElevated,
-                                    labelColor = AdminTextSecondary
+                                    labelColor = if (isDupChip) AdminRed else AdminTextSecondary
                                 )
                             )
                         }
@@ -292,7 +424,11 @@ fun AdminDashboardScreen() {
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(filteredRequests, key = { it.id }) { request ->
-                    AdminRequestItem(request = request, viewModel = viewModel)
+                    val isDuplicate = request.isDuplicateReceipt || request.id in duplicateReceiptIds
+                    AdminRequestItem(
+                        request = request.copy(isDuplicateReceipt = isDuplicate),
+                        viewModel = viewModel
+                    )
                 }
             }
         }
@@ -314,19 +450,50 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
 
     var showImageDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showAuditLogs by remember { mutableStateOf(false) }
 
-    val decodedBitmap = remember(request.receiptImageUrl) {
-        ImageDecoderUtil.decodeBase64ToBitmap(request.receiptImageUrl, context)
+    var decodedBitmap by remember(request.receiptImageUrl) { mutableStateOf<Bitmap?>(null) }
+    var isLoadingReceipt by remember(request.receiptImageUrl) { mutableStateOf(false) }
+    var ocrSuggestion by remember(request.receiptImageUrl) { mutableStateOf<OcrSuggestion?>(null) }
+    var isRunningOcr by remember(request.receiptImageUrl) { mutableStateOf(false) }
+
+    // تحميل السند سواء كان رابط Firebase Storage (https://) أو نص Base64، ثم تشغيل قراءة الـ OCR تلقائياً
+    LaunchedEffect(request.receiptImageUrl) {
+        if (request.receiptImageUrl.isBlank()) {
+            decodedBitmap = null
+            ocrSuggestion = null
+            return@LaunchedEffect
+        }
+        isLoadingReceipt = true
+        val bmp = withContext(Dispatchers.IO) {
+            if (request.receiptImageUrl.startsWith("http", ignoreCase = true)) {
+                runCatching {
+                    URL(request.receiptImageUrl).openStream().use { input ->
+                        BitmapFactory.decodeStream(input)
+                    }
+                }.getOrNull()
+            } else {
+                ImageDecoderUtil.decodeBase64ToBitmap(request.receiptImageUrl, context)
+            }
+        }
+        decodedBitmap = bmp
+        isLoadingReceipt = false
+
+        if (bmp != null) {
+            isRunningOcr = true
+            ocrSuggestion = runReceiptOcr(bmp)
+            isRunningOcr = false
+        }
     }
 
     val statusInfo = when (request.status) {
-        "SUBMITTED" -> Triple("طلب جديد - بانتظار الموافقة أو الرفض", AdminAmber, Color(0xFF451A03))
-        "REJECTED" -> Triple("مرفوض", AdminRed, Color(0xFF450A0A))
-        "PRE_APPROVED" -> Triple("مقبول - جاري عداد المراجعة", AdminPurple, Color(0xFF3B0764))
-        "APPROVED" -> Triple("بانتظار الإيداع من المستخدم", AdminBlue, Color(0xFF082F49))
-        "RECEIPT_SUBMITTED" -> Triple("تم إرفاق إشعار الإيداع - بانتظار تأكيدك", AdminAmber, Color(0xFF451A03))
-        "PROCESSING" -> Triple("تم تأكيد الإيداع - جاري معالجة المشكلة", AdminGreenBright, AdminGreenDeep)
-        "COMPLETED" -> Triple("تم حل المشكلة بنجاح ✓", AdminGreenBright, AdminGreenDeep)
+        RequestStatus.SUBMITTED.name -> Triple("طلب جديد - بانتظار الموافقة أو الرفض", AdminAmber, Color(0xFF451A03))
+        RequestStatus.REJECTED.name -> Triple("مرفوض", AdminRed, Color(0xFF450A0A))
+        RequestStatus.PRE_APPROVED.name -> Triple("مقبول - جاري عداد المراجعة", AdminPurple, Color(0xFF3B0764))
+        RequestStatus.APPROVED.name -> Triple("بانتظار الإيداع من المستخدم", AdminBlue, Color(0xFF082F49))
+        RequestStatus.RECEIPT_SUBMITTED.name -> Triple("تم إرفاق إشعار الإيداع - بانتظار تأكيدك", AdminAmber, Color(0xFF451A03))
+        RequestStatus.PROCESSING.name -> Triple("تم تأكيد الإيداع - جاري معالجة المشكلة", AdminGreenBright, AdminGreenDeep)
+        RequestStatus.COMPLETED.name -> Triple("تم حل المشكلة بنجاح ✓", AdminGreenBright, AdminGreenDeep)
         else -> Triple(request.status, AdminTextSecondary, AdminSurfaceElevated)
     }
 
@@ -334,14 +501,48 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
         modifier = Modifier
             .fillMaxWidth()
             .border(
-                BorderStroke(1.dp, statusInfo.second.copy(alpha = 0.4f)),
+                BorderStroke(
+                    width = if (request.isDuplicateReceipt) 2.dp else 1.dp,
+                    color = if (request.isDuplicateReceipt) AdminRed else statusInfo.second.copy(alpha = 0.4f)
+                ),
                 RoundedCornerShape(18.dp)
             ),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = AdminSurface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // رأس البطاقة: رقم الهاتف + زر نسخ + زر حذف
+            // تنبيه السند المكرر إن وجد
+            if (request.isDuplicateReceipt) {
+                Surface(
+                    color = AdminRed.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, AdminRed),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = AdminRed,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "تحذير أمني: هذا السند مكرر (تم رفعه في طلب آخر بنفس البصمة SHA-256)!",
+                            color = AdminRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // رأس البطاقة: رقم الهاتف + زر نسخ + زر سجل الإجراءات + زر حذف
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -376,7 +577,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                                 color = AdminTextPrimary
                             )
                             OutlinedButton(
-                                onClick = { copyPhoneToClipboard(context, request.phoneNumber) },
+                                onClick = { copyTextToClipboard(context, "الرقم", request.phoneNumber) },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                 modifier = Modifier.height(26.dp),
                                 shape = RoundedCornerShape(6.dp),
@@ -393,12 +594,21 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-                IconButton(onClick = { showDeleteConfirm = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "حذف الطلب",
-                        tint = AdminRed.copy(alpha = 0.8f)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showAuditLogs = !showAuditLogs }) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "سجل الإجراءات",
+                            tint = if (showAuditLogs) AdminGreenBright else AdminTextSecondary
+                        )
+                    }
+                    IconButton(onClick = { showDeleteConfirm = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "حذف الطلب",
+                            tint = AdminRed.copy(alpha = 0.8f)
+                        )
+                    }
                 }
             }
 
@@ -425,7 +635,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                 }
 
                 if (request.createdAt > 0L) {
-                    val sdf = remember { SimpleDateFormat("hh:mm a", Locale.US) }
+                    val sdf = remember { SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.US) }
                     Text(
                         text = sdf.format(Date(request.createdAt)),
                         fontSize = 11.sp,
@@ -434,7 +644,13 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                 }
             }
 
-            if (request.status == "PRE_APPROVED" || request.status == "PROCESSING") {
+            // عرض سجل الإجراءات (Audit Logs) عند الضغط على أيقونة السجل
+            if (showAuditLogs) {
+                Spacer(modifier = Modifier.height(8.dp))
+                RequestAuditLogsBox(requestId = request.id)
+            }
+
+            if (request.status == RequestStatus.PRE_APPROVED.name || request.status == RequestStatus.PROCESSING.name) {
                 if (request.timerEndTime > 0L) {
                     Spacer(modifier = Modifier.height(8.dp))
                     AdminLiveTimerBadge(endTime = request.timerEndTime)
@@ -448,7 +664,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
 
             // التحكم حسب المرحلة الحالية للطلب
             when (request.status) {
-                "SUBMITTED" -> {
+                RequestStatus.SUBMITTED.name -> {
                     Text(
                         text = "1. تحديد مدة عداد المراجعة وقبول الطلب:",
                         fontSize = 13.sp,
@@ -504,7 +720,6 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // خيار طلب إيداع مباشر أو رفض الطلب مع ملاحظة
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -543,7 +758,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-                "PRE_APPROVED" -> {
+                RequestStatus.PRE_APPROVED.name -> {
                     Text(
                         text = "طلب الإيداع وإظهار واجهة الإيداع الخضراء للمستخدم:",
                         fontSize = 13.sp,
@@ -552,7 +767,6 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // أزرار سريعة لاختيار المبلغ
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -637,7 +851,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-                "APPROVED" -> {
+                RequestStatus.APPROVED.name -> {
                     Surface(
                         color = AdminSurfaceElevated,
                         shape = RoundedCornerShape(12.dp),
@@ -720,8 +934,8 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-                "RECEIPT_SUBMITTED", "PROCESSING" -> {
-                    // عرض ملف الـ PDF أو صورة الإشعار المرفقة من المستخدم إن وجدت
+                RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
+                    // عرض ملف الـ PDF أو صورة الإشعار المرفقة من المستخدم + نتائج قراءة الـ OCR
                     if (request.receiptImageUrl.isNotBlank()) {
                         Surface(
                             color = AdminSurfaceElevated,
@@ -745,44 +959,115 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                                         fontSize = 13.sp,
                                         color = AdminGreenBright
                                     )
-                                    if (request.receiptFileName.isNotBlank()) {
-                                        Text(
-                                            text = request.receiptFileName,
-                                            fontSize = 11.sp,
-                                            color = AdminTextSecondary
+                                    IconButton(
+                                        onClick = { shareReceiptDetails(context, request, ocrSuggestion) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Share,
+                                            contentDescription = "مشاركة السند",
+                                            tint = AdminGreenBright,
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                if (decodedBitmap != null) {
-                                    Card(
+                                // صندوق نتائج القراءة التلقائية للسند عبر ML Kit OCR
+                                if (isRunningOcr) {
+                                    Text(
+                                        text = "⏳ جاري قراءة بيانات السند تلقائياً (OCR)...",
+                                        fontSize = 11.sp,
+                                        color = AdminAmber,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                } else if (ocrSuggestion != null &&
+                                    (ocrSuggestion!!.suggestedAmount.isNotBlank() || ocrSuggestion!!.suggestedRefNumber.isNotBlank())
+                                ) {
+                                    Surface(
+                                        color = AdminGreenDeep.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, AdminGreenBright.copy(alpha = 0.35f)),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(190.dp)
-                                            .clickable { showImageDialog = true },
-                                        shape = RoundedCornerShape(10.dp)
+                                            .padding(vertical = 6.dp)
                                     ) {
-                                        Image(
-                                            bitmap = decodedBitmap.asImageBitmap(),
-                                            contentDescription = "Receipt Preview",
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
+                                        Row(
+                                            modifier = Modifier.padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "🤖 قراءة السند التلقائية (OCR للمقارنة):",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = AdminGreenBright
+                                                )
+                                                Text(
+                                                    text = "المبلغ المقترح: ${ocrSuggestion!!.suggestedAmount.ifBlank { "غير واضح" }} | رقم العملية: ${ocrSuggestion!!.suggestedRefNumber.ifBlank { "غير واضح" }}",
+                                                    fontSize = 11.sp,
+                                                    color = AdminTextPrimary
+                                                )
+                                            }
+                                            if (ocrSuggestion!!.suggestedRefNumber.isNotBlank()) {
+                                                TextButton(
+                                                    onClick = {
+                                                        copyTextToClipboard(
+                                                            context,
+                                                            "رقم العملية",
+                                                            ocrSuggestion!!.suggestedRefNumber
+                                                        )
+                                                    }
+                                                ) {
+                                                    Text("نسخ المرجع", fontSize = 10.sp, color = AdminGreenBright)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                when {
+                                    isLoadingReceipt -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(160.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(color = AdminGreenBright)
+                                        }
+                                    }
+                                    decodedBitmap != null -> {
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(190.dp)
+                                                .clickable { showImageDialog = true },
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Image(
+                                                bitmap = decodedBitmap!!.asImageBitmap(),
+                                                contentDescription = "Receipt Preview",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        }
+                                        Text(
+                                            text = "🔍 اضغط على السند لتكبيره باللمس (Pinch-to-Zoom) أو مشاركته",
+                                            fontSize = 11.sp,
+                                            color = AdminTextSecondary,
+                                            modifier = Modifier.padding(top = 6.dp)
                                         )
                                     }
-                                    Text(
-                                        text = "🔍 اضغط على الإشعار لتكبيره وقراءة كافة التفاصيل بوضوح",
-                                        fontSize = 11.sp,
-                                        color = AdminTextSecondary,
-                                        modifier = Modifier.padding(top = 6.dp)
-                                    )
-                                } else {
-                                    Text(
-                                        text = "⚠️ تعذر عرض معاينة المرفق",
-                                        fontSize = 12.sp,
-                                        color = AdminRed
-                                    )
+                                    else -> {
+                                        Text(
+                                            text = "⚠️ تعذر عرض معاينة المرفق",
+                                            fontSize = 12.sp,
+                                            color = AdminRed
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -790,8 +1075,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                         Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    // المستخدم الآن في واجهة انتظار؛ لن تبدأ المعالجة إلا بعد ضغط الأدمن على تأكيد الإيداع
-                    if (request.status == "RECEIPT_SUBMITTED") {
+                    if (request.status == RequestStatus.RECEIPT_SUBMITTED.name) {
                         OutlinedButton(
                             onClick = {
                                 viewModel.confirmDepositReceived(request.id, selectedProcessingMins) { success ->
@@ -864,7 +1148,6 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                         Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    // قسم إتمام الحل وإرسال علامة الصح والملاحظات المرفقة
                     Text(
                         text = "إتمام الحل النهائي وإرفاق الملاحظات للمستخدم:",
                         fontSize = 13.sp,
@@ -874,7 +1157,6 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // قوالب ملاحظات جاهزة لتسهيل عمل الأدمن
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -948,7 +1230,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-                "COMPLETED" -> {
+                RequestStatus.COMPLETED.name -> {
                     Surface(
                         color = AdminGreenDeep.copy(alpha = 0.35f),
                         shape = RoundedCornerShape(12.dp),
@@ -972,7 +1254,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-                "REJECTED" -> {
+                RequestStatus.REJECTED.name -> {
                     Surface(
                         color = AdminRed.copy(alpha = 0.1f),
                         shape = RoundedCornerShape(12.dp),
@@ -999,38 +1281,13 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
         }
     }
 
-    // نافذة تكبير ومعاينة إشعار الـ PDF / الصورة
+    // نافذة معاينة السند مع التكبير باللمس (Pinch-to-Zoom) والمشاركة وتنبيه التكرار
     if (showImageDialog && decodedBitmap != null) {
-        AlertDialog(
-            onDismissRequest = { showImageDialog = false },
-            confirmButton = {
-                TextButton(onClick = { showImageDialog = false }) {
-                    Text("إغلاق المعاينة", color = AdminGreenBright, fontWeight = FontWeight.Bold)
-                }
-            },
-            title = {
-                Text(
-                    text = "معاينة إشعار الإيداع (${request.phoneNumber})",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(430.dp)
-                ) {
-                    Image(
-                        bitmap = decodedBitmap.asImageBitmap(),
-                        contentDescription = "Full Receipt View",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-            },
-            containerColor = AdminSurface,
-            shape = RoundedCornerShape(16.dp)
+        ZoomableReceiptPreviewDialog(
+            bitmap = decodedBitmap!!,
+            request = request,
+            ocrSuggestion = ocrSuggestion,
+            onDismiss = { showImageDialog = false }
         )
     }
 
@@ -1061,6 +1318,227 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
             containerColor = AdminSurface,
             shape = RoundedCornerShape(16.dp)
         )
+    }
+}
+
+/**
+ * نافذة معاينة السند بالتكبير (Pinch-to-Zoom & Pan) مع زر المشاركة وبيانات الـ OCR
+ */
+@Composable
+fun ZoomableReceiptPreviewDialog(
+    bitmap: Bitmap,
+    request: AdminSupportRequest,
+    ocrSuggestion: OcrSuggestion?,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f),
+            shape = RoundedCornerShape(18.dp),
+            color = AdminSurface,
+            border = BorderStroke(1.dp, AdminGreenBright.copy(alpha = 0.4f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "معاينة السند (${request.phoneNumber})",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AdminTextPrimary
+                    )
+                    IconButton(
+                        onClick = {
+                            scale = 1f
+                            offsetX = 0f
+                            offsetY = 0f
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "إعادة ضبط التكبير",
+                            tint = AdminGreenBright
+                        )
+                    }
+                }
+
+                if (request.isDuplicateReceipt) {
+                    Surface(
+                        color = AdminRed.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, AdminRed),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "⚠️ تنبيه: بصمة هذا السند مكررة في طلب آخر!",
+                            color = AdminRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                }
+
+                if (ocrSuggestion != null &&
+                    (ocrSuggestion.suggestedAmount.isNotBlank() || ocrSuggestion.suggestedRefNumber.isNotBlank())
+                ) {
+                    Text(
+                        text = "قراءة OCR: المبلغ (${ocrSuggestion.suggestedAmount.ifBlank { "غير واضح" }}) | العملية (${ocrSuggestion.suggestedRefNumber.ifBlank { "غير واضح" }})",
+                        fontSize = 11.sp,
+                        color = AdminGreenBright,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black)
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                scale = (scale * zoom).coerceIn(1f, 5f)
+                                if (scale > 1f) {
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                } else {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Full Zoomable Receipt",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            ),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { shareReceiptDetails(context, request, ocrSuggestion) },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, AdminGreenBright)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            tint = AdminGreenBright,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("مشاركة السند", color = AdminGreenBright, fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AdminGreenPrimary)
+                    ) {
+                        Text("إغلاق المعاينة", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * مكون عرض سجل الإجراءات (Audit Logs: من أكد الإيداع أو عدّل الحالة ومتى)
+ */
+@Composable
+fun RequestAuditLogsBox(requestId: String) {
+    var logs by remember(requestId) { mutableStateOf<List<AuditLogUiItem>>(emptyList()) }
+
+    LaunchedEffect(requestId) {
+        val ref = FirebaseDatabase.getInstance()
+            .getReference(DatabaseKeys.NODE_REQUESTS)
+            .child(requestId)
+            .child(DatabaseKeys.FIELD_AUDIT_LOGS)
+
+        ref.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val parsed = snapshot.children.mapNotNull { child ->
+                    val adminUid = child.child("adminUid").getValue(String::class.java) ?: "admin"
+                    val toStatus = child.child("toStatus").getValue(String::class.java).orEmpty()
+                    val note = child.child("note").getValue(String::class.java).orEmpty()
+                    val timestamp = child.child("timestamp").getValue(Long::class.java) ?: 0L
+                    if (toStatus.isBlank()) null else AuditLogUiItem(adminUid, toStatus, note, timestamp)
+                }.sortedByDescending { it.timestamp }
+                logs = parsed
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
+    val sdf = remember { SimpleDateFormat("MM/dd hh:mm a", Locale.US) }
+
+    Surface(
+        color = AdminSurfaceElevated,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "📋 سجل إجراءات الأدمن (Audit Log):",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = AdminGreenBright
+            )
+            if (logs.isEmpty()) {
+                Text(
+                    text = "لا توجد إجراءات مسجلة بعد لهذا الطلب.",
+                    fontSize = 11.sp,
+                    color = AdminTextSecondary
+                )
+            } else {
+                logs.forEach { log ->
+                    val statusAr = RequestStatus.fromStringOrDefault(log.toStatus).arabicLabel
+                    val timeFormatted = if (log.timestamp > 0L) sdf.format(Date(log.timestamp)) else ""
+                    val shortAdmin = if (log.adminUid.length > 6) log.adminUid.take(6) else log.adminUid
+                    Text(
+                        text = "• [$shortAdmin] حوّل الحالة إلى ($statusAr) - $timeFormatted",
+                        fontSize = 11.sp,
+                        color = AdminTextPrimary
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1141,9 +1619,23 @@ fun RejectRequestSection(
 @Composable
 fun AdminLiveTimerBadge(endTime: Long) {
     var timeLeft by remember(endTime) { mutableLongStateOf(0L) }
-    LaunchedEffect(endTime) {
+    var serverTimeOffset by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(Unit) {
+        val offsetRef = FirebaseDatabase.getInstance().getReference(DatabaseKeys.SERVER_TIME_OFFSET)
+        offsetRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                serverTimeOffset = snapshot.getValue(Long::class.java) ?: 0L
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
+    LaunchedEffect(endTime, serverTimeOffset) {
         while (true) {
-            val diff = endTime - System.currentTimeMillis()
+            val estimatedServerNow = System.currentTimeMillis() + serverTimeOffset
+            val diff = endTime - estimatedServerNow
             timeLeft = if (diff > 0) diff / 1000L else 0L
             if (timeLeft <= 0L) break
             delay(1000L)
@@ -1165,7 +1657,7 @@ fun AdminLiveTimerBadge(endTime: Long) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "⏱️ العداد التنازلي الظاهر للمستخدم الآن:",
+                text = "⏱️ العداد التنازلي الظاهر للمستخدم الآن (بتوقيت الخادم):",
                 fontSize = 12.sp,
                 color = AdminTextSecondary
             )
@@ -1174,167 +1666,6 @@ fun AdminLiveTimerBadge(endTime: Long) {
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (timeLeft > 0) AdminGreenBright else AdminAmber
-            )
-        }
-    }
-}
-
-/**
- * شريط عدّادات الحالات والفلترة في أعلى شاشة الأدمن
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun StatusFilterCountersRow(
-    statusCounts: Map<RequestStatus, Int>,
-    selectedStatus: RequestStatus?,
-    onSelectStatus: (RequestStatus?) -> Unit
-) {
-    val totalCount = statusCounts.values.sum()
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp)
-    ) {
-        item {
-            FilterChip(
-                selected = selectedStatus == null,
-                onClick = { onSelectStatus(null) },
-                label = { Text("الكل ($totalCount)") }
-            )
-        }
-        items(RequestStatus.entries) { status ->
-            val count = statusCounts[status] ?: 0
-            FilterChip(
-                selected = selectedStatus == status,
-                onClick = { onSelectStatus(status) },
-                label = { Text("${status.arabicLabel} ($count)") }
-            )
-        }
-    }
-}
-
-/**
- * نافذة معاينة السند مع دعم التكبير والتحريك باللمس (Pinch-to-Zoom) وزر المشاركة
- */
-@Composable
-fun ZoomableReceiptDialog(
-    receiptUrl: String,
-    phoneNumber: String,
-    isDuplicate: Boolean,
-    ocrAmount: String,
-    ocrRefNumber: String,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f),
-            shape = MaterialTheme.shapes.large,
-            tonalElevation = 6.dp
-        ) {
-            Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                if (isDuplicate) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    ) {
-                        Text(
-                            text = "تحذير: بصمة هذا السند (SHA-256) مكررة في طلب آخر!",
-                            color = Color(0xFFC62828),
-                            modifier = Modifier.padding(8.dp),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-
-                if (ocrAmount.isNotBlank() || ocrRefNumber.isNotBlank()) {
-                    Text(
-                        text = "قراءة تلقائية مقترحة (OCR): المبلغ: ${ocrAmount.ifBlank { "غير واضح" }} | المرجع: ${ocrRefNumber.ifBlank { "غير واضح" }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(Color.Black)
-                        .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                scale = (scale * zoom).coerceIn(1f, 5f)
-                                if (scale > 1f) {
-                                    offsetX += pan.x
-                                    offsetY += pan.y
-                                } else {
-                                    offsetX = 0f
-                                    offsetY = 0f
-                                }
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    AsyncImage(
-                        model = receiptUrl,
-                        contentDescription = "صورة السند",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                translationX = offsetX,
-                                translationY = offsetY
-                            )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("إغلاق")
-                    }
-                    Button(onClick = { shareReceiptLink(context, receiptUrl, phoneNumber) }) {
-                        Text("مشاركة السند")
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun shareReceiptLink(context: Context, receiptUrl: String, phoneNumber: String) {
-    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "سند إيداع للرقم $phoneNumber")
-        putExtra(Intent.EXTRA_TEXT, "سند الإيداع الخاص بالرقم $phoneNumber:\n$receiptUrl")
-    }
-    context.startActivity(Intent.createChooser(shareIntent, "مشاركة السند عبر"))
-}
-
-/**
- * مكون عرض سجل الإجراءات (Audit Logs) داخل بطاقة الطلب في تطبيق الأدمن
- */
-@Composable
-fun AuditLogsSection(auditLogs: Map<String, AuditLogEntry>) {
-    if (auditLogs.isEmpty()) return
-    val dateFormat = SimpleDateFormat("MM/dd hh:mm a", Locale.getDefault())
-    val sortedLogs = auditLogs.values.sortedByDescending { it.timestamp }
-
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        Text("سجل الإجراءات:", style = MaterialTheme.typography.labelLarge)
-        sortedLogs.forEach { log ->
-            val timeStr = if (log.timestamp > 0) dateFormat.format(Date(log.timestamp)) else ""
-            Text(
-                text = "• [${log.adminIdentifier}] حوّل الحالة من ${log.fromStatus} إلى ${log.toStatus} ($timeStr)",
-                style = MaterialTheme.typography.bodySmall
             )
         }
     }
