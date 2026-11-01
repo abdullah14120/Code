@@ -14,7 +14,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -30,6 +29,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,7 +51,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -99,21 +98,22 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.code.w.common.model.DatabaseKeys
 import com.code.w.model.SupportRequest
 import com.code.w.util.ProcessedReceipt
 import com.code.w.viewmodel.UserSupportViewModel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import java.util.Locale
-import com.code.w.common.model.DatabaseKeys
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.remoteConfigSettings
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 
 // لوحة الألوان الرسمية الاحترافية (اللون الأخضر الرسمي المتناسق مع الواتساب ومصرف العمقي)
 private val DarkBackground = Color(0xFF0B141A)
@@ -170,14 +170,12 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingShareIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND) {
-            val streamUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val sharedUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
                 @Suppress("DEPRECATION")
-                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            }
-
-            val sharedUri: Uri? = streamUri ?: intent.clipData?.let { clip ->
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            } ?: intent.clipData?.let { clip ->
                 if (clip.itemCount > 0) clip.getItemAt(0).uri else null
             }
 
@@ -202,6 +200,12 @@ fun OfficialGreenTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = colorScheme, content = content)
 }
 
+private fun copyToClipboard(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+    Toast.makeText(context, "تم نسخ $label: $text", Toast.LENGTH_SHORT).show()
+}
+
 private fun openSupportContact(context: Context, requestPhone: String, statusLabel: String) {
     val supportNumber = FirebaseRemoteConfig.getInstance()
         .getString("support_whatsapp_number")
@@ -210,7 +214,7 @@ private fun openSupportContact(context: Context, requestPhone: String, statusLab
     val whatsappUri = Uri.parse("https://wa.me/${supportNumber.replace("+", "")}?text=${Uri.encode(message)}")
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, whatsappUri))
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:770034578")))
     }
 }
@@ -242,12 +246,6 @@ fun ContactSupportWaitingButton(phoneNumber: String, statusLabel: String) {
     }
 }
 
-private fun copyToClipboard(context: Context, label: String, text: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
-    Toast.makeText(context, "تم نسخ $label: $text", Toast.LENGTH_SHORT).show()
-}
-
 @Composable
 fun AppNavigationRouter(
     initialRequestId: String?,
@@ -277,7 +275,7 @@ fun AppNavigationRouter(
                     Toast.makeText(
                         context,
                         "الملف غير مدعوم أو يتجاوز 5 ميجابايت. يرجى مشاركة ملف PDF أو صورة (JPG/PNG) بحجم أقل من 5MB",
-                        Toast.LENGTH_SHORT
+                        Toast.LENGTH_LONG
                     ).show()
                 }
                 onSharedUriConsumed()
@@ -726,10 +724,6 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                     )
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                UserRequestsHistoryCard(onSelectRequest = onSuccess)
-
                 Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
@@ -778,16 +772,23 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        UserRequestsHistoryCard(onSelectRequest = onSuccess)
     }
 }
 
-// سجل الطلبات السابقة للمستخدم (دالة مستقلة على مستوى الملف)
 @Composable
 fun UserRequestsHistoryCard(onSelectRequest: (String) -> Unit) {
     var historyList by remember { mutableStateOf<List<SupportRequest>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return@LaunchedEffect
+        val auth = FirebaseAuth.getInstance()
+        val uid = auth.currentUser?.uid ?: runCatching {
+            auth.signInAnonymously()
+            null
+        }.getOrNull() ?: return@LaunchedEffect
+
         val ref = FirebaseDatabase.getInstance().getReference(DatabaseKeys.NODE_REQUESTS)
             .orderByChild(DatabaseKeys.FIELD_OWNER_UID)
             .equalTo(uid)
@@ -1086,6 +1087,7 @@ fun WaitingApprovalScreen(
                 phoneNumber = request?.phoneNumber.orEmpty(),
                 statusLabel = "بانتظار مراجعة وموافقة الإدارة"
             )
+
             Spacer(modifier = Modifier.height(10.dp))
 
             TextButton(onClick = onCancelSession) {
@@ -1327,7 +1329,6 @@ fun ReviewTimerScreen(
             }
 
             Spacer(modifier = Modifier.height(14.dp))
-
             ContactSupportWaitingButton(
                 phoneNumber = request?.phoneNumber.orEmpty(),
                 statusLabel = "عداد انتظار المراجعة"
@@ -1357,7 +1358,11 @@ fun OfficialDepositScreen(
         uri?.let {
             viewModel.processReceiptUri(context, it, fromExternalShare = false) { success ->
                 if (!success) {
-                    Toast.makeText(context, "حجم الملف يتجاوز 5 ميجابايت أو صيغته غير مدعومة (المسموح: PDF أو صورة)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "حجم الملف يتجاوز 5 ميجابايت أو صيغته غير مدعومة (المسموح: PDF أو صورة)",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -1370,14 +1375,18 @@ fun OfficialDepositScreen(
         uri?.let {
             viewModel.processReceiptUri(context, it, fromExternalShare = false) { success ->
                 if (!success) {
-                    Toast.makeText(context, "حجم الملف يتجاوز 5 ميجابايت أو صيغته غير مدعومة (المسموح: PDF أو صورة)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "حجم الملف يتجاوز 5 ميجابايت أو صيغته غير مدعومة (المسموح: PDF أو صورة)",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
     }
 
     val amountText = request?.bankDetails?.takeIf { it.isNotBlank() } ?: "يحدد من الإدارة"
- val remoteConfig = remember { FirebaseRemoteConfig.getInstance() }
+    val remoteConfig = remember { FirebaseRemoteConfig.getInstance() }
     var bankName by remember {
         mutableStateOf(remoteConfig.getString("deposit_bank_name").ifBlank { "شركة العمقي وإخوانه للصرافة" })
     }
@@ -1590,7 +1599,7 @@ fun OfficialDepositScreen(
                         onClick = { copyToClipboard(context, "اسم الحساب", accountName) },
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, OfficialGreenBright.copy(alpha = 0.4f)),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text("نسخ الاسم", fontSize = 11.sp, color = OfficialGreenBright)
                     }
@@ -2016,6 +2025,7 @@ fun DepositUnderReviewScreen(request: SupportRequest?) {
                     modifier = Modifier.padding(12.dp)
                 )
             }
+
             Spacer(modifier = Modifier.height(14.dp))
             ContactSupportWaitingButton(
                 phoneNumber = request?.phoneNumber.orEmpty(),
@@ -2025,7 +2035,7 @@ fun DepositUnderReviewScreen(request: SupportRequest?) {
     }
 }
 
-// 5. واجهة "جاري معالجة المشكلة" الاحترافية مع عداد التوقيت (بعد إرفاق الـ PDF أو تأكيد الأدمن بأن الإيداع قد تم)
+// 5. واجهة "جاري معالجة المشكلة" الاحترافية مع عداد التوقيت
 @Composable
 fun ProcessingProblemScreen(request: SupportRequest?) {
     val isConfirmedByAdmin = request?.status == SupportRequest.Status.PROCESSING
@@ -2133,6 +2143,7 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
                     )
                 }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
             ContactSupportWaitingButton(
                 phoneNumber = request?.phoneNumber.orEmpty(),
@@ -2324,7 +2335,7 @@ fun CompletedSuccessScreen(
     }
 }
 
-// مكون العداد الدائري الاحترافي المزود بحلقة نبض متوهجة
+// مكون العداد الدائري الاحترافي المزود بحلقة نبض متوهجة ومزامنة وقت السيرفر
 @Composable
 fun ProfessionalCountdownWidget(
     endTime: Long,
