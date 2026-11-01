@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="true"
@@ -14,7 +17,7 @@
         android:supportsRtl="true"
         android:largeHeap="true"
         android:theme="@style/Theme.SupportAdmin">
-        
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -24,7 +27,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
+
+        <!-- خدمة مراقبة الطلبات والسندات في الخلفية حتى عند إغلاق الشاشة -->
+        <service
+            android:name=".service.AdminMonitorService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
 
 </manifest>
