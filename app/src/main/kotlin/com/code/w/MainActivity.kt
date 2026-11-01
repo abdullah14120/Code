@@ -137,7 +137,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+if (Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
         handleIncomingShareIntent(intent)
 
         val sharedPreferences = getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
