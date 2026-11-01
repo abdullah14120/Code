@@ -26,6 +26,18 @@ enum class RequestStatus(val arabicLabel: String) {
     }
 
     companion object {
+        /**
+         * تُستخدم للتحقق الصارم من اسم الحالة ورمي استثناء عند وجود خطأ إملائي
+         */
+        fun fromString(value: String?): RequestStatus {
+            if (value.isNullOrBlank()) return SUBMITTED
+            return entries.firstOrNull { it.name.equals(value.trim(), ignoreCase = true) }
+                ?: throw IllegalArgumentException("Unknown RequestStatus: $value")
+        }
+
+        /**
+         * تُستخدم للقراءة الآمنة مع قيمة افتراضية
+         */
         fun fromStringOrDefault(value: String?, default: RequestStatus = SUBMITTED): RequestStatus {
             return entries.firstOrNull { it.name.equals(value?.trim(), ignoreCase = true) } ?: default
         }
