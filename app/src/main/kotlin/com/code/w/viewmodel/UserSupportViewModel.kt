@@ -6,8 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.code.w.model.SupportRequest
 import com.code.w.repository.SupportRepository
+import com.code.w.util.LocalNotificationHelper
 import com.code.w.util.ProcessedReceipt
 import com.code.w.util.ReceiptFileProcessor
+import com.google.firebase.FirebaseApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,8 +19,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class UserSupportViewModel : ViewModel() {
-    private val repository = SupportRepository()
+    private val appContext: Context = FirebaseApp.getInstance().applicationContext
+    private val repository = SupportRepository(appContext)
     private var observeJob: Job? = null
+    private var lastKnownStatus: SupportRequest.Status? = null
 
     private val _currentRequest = MutableStateFlow<SupportRequest?>(null)
     val currentRequest: StateFlow<SupportRequest?> = _currentRequest.asStateFlow()
@@ -54,6 +58,17 @@ class UserSupportViewModel : ViewModel() {
         observeJob?.cancel()
         observeJob = viewModelScope.launch {
             repository.observeRequest(requestId).collect { request: SupportRequest? ->
+                if (request != null) {
+                    val previousStatus = lastKnownStatus
+                    if (previousStatus != null && previousStatus != request.status) {
+                        LocalNotificationHelper.showStatusNotification(
+                            context = appContext,
+                            status = request.status,
+                            phoneNumber = request.phoneNumber
+                        )
+                    }
+                    lastKnownStatus = request.status
+                }
                 _currentRequest.value = request
             }
         }
@@ -101,6 +116,7 @@ class UserSupportViewModel : ViewModel() {
 
     fun resetSessionState() {
         observeJob?.cancel()
+        lastKnownStatus = null
         _currentRequest.value = null
         _attachedReceipt.value = null
         _isSharedFromExternalApp.value = false
