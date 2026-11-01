@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
@@ -10,7 +12,8 @@
         android:label="لوحة تحكم الأدمن"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:largeHeap="true" android:theme="@style/Theme.SupportAdmin">
+        android:largeHeap="true"
+        android:theme="@style/Theme.SupportAdmin">
         
         <activity
             android:name=".MainActivity"
