@@ -5,6 +5,7 @@ object DatabaseKeys {
     const val NODE_USERS_FCM = "users_fcm"
     const val SERVER_TIME_OFFSET = ".info/serverTimeOffset"
 
+    const val FIELD_CHAT_MESSAGES = "chatMessages"
     const val FIELD_ID = "id"
     const val FIELD_OWNER_UID = "ownerUid"
     const val FIELD_PHONE_NUMBER = "phoneNumber"
