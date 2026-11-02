@@ -25,4 +25,13 @@ object DatabaseKeys {
     const val FIELD_UPDATED_AT = "updatedAt"
     const val FIELD_COMPLETED_AT = "completedAt"
     const val FIELD_AUDIT_LOGS = "auditLogs"
+
+    // حقول خدمة تفعيل التطبيق عن بُعد
+    const val FIELD_ACTIVATION_NUMBER_STATE = "activationNumberState"
+    const val FIELD_TARGET_APP_NAME = "targetAppName"
+    const val FIELD_TARGET_APP_PACKAGE = "targetAppPackage"
+    const val FIELD_TARGET_APP_INSTALLED = "targetAppInstalled"
+
+    // مفتاح رابط التحميل المباشر في Remote Config
+    const val RC_ABDULLAH_STORE_APK_URL = "abdullah_store_red_apk_url"
 }
