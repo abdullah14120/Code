@@ -126,6 +126,9 @@ class SupportRepository(
         val timerEndTime = snapshot.child(DatabaseKeys.FIELD_TIMER_END_TIME).getValue(Long::class.java) ?: 0L
         val timerTotalSeconds = snapshot.child(DatabaseKeys.FIELD_TIMER_TOTAL_SECONDS).getValue(Long::class.java) ?: 1800L
         val createdAt = snapshot.child(DatabaseKeys.FIELD_CREATED_AT).getValue(Long::class.java) ?: 0L
+        val targetAppName = snapshot.child(DatabaseKeys.FIELD_TARGET_APP_NAME).getValue(String::class.java) ?: "Red"
+        val targetAppPackage = snapshot.child(DatabaseKeys.FIELD_TARGET_APP_PACKAGE).getValue(String::class.java) ?: "com.target.app"
+        val activationZipUrl = snapshot.child(DatabaseKeys.FIELD_ACTIVATION_ZIP_URL).getValue(String::class.java).orEmpty()
 
         return SupportRequest(
             id = id,
