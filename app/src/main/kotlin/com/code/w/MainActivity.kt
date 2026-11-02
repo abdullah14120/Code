@@ -99,7 +99,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.code.w.common.model.DatabaseKeys
+import com.code.w.common.model.ServiceType
 import com.code.w.model.SupportRequest
+import com.code.w.ui.LiveChatSupportButton
 import com.code.w.util.ProcessedReceipt
 import com.code.w.viewmodel.UserSupportViewModel
 import com.google.firebase.auth.FirebaseAuth
@@ -137,9 +139,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-if (Build.VERSION.SDK_INT >= 33) {
+
+        if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
         }
+
         handleIncomingShareIntent(intent)
 
         val sharedPreferences = getSharedPreferences("support_prefs", Context.MODE_PRIVATE)
@@ -208,44 +212,20 @@ private fun copyToClipboard(context: Context, label: String, text: String) {
     Toast.makeText(context, "تم نسخ $label: $text", Toast.LENGTH_SHORT).show()
 }
 
-private fun openSupportContact(context: Context, requestPhone: String, statusLabel: String) {
-    val supportNumber = FirebaseRemoteConfig.getInstance()
-        .getString("support_whatsapp_number")
-        .ifBlank { "967770034578" }
-    val message = "مرحباً، أستفسر عن طلب معالجة الرقم: $requestPhone\nالحالة الحالية: $statusLabel"
-    val whatsappUri = Uri.parse("https://wa.me/${supportNumber.replace("+", "")}?text=${Uri.encode(message)}")
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, whatsappUri))
-    } catch (_: Exception) {
-        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:770034578")))
-    }
-}
-
+/**
+ * زر التواصل المباشر مع الدعم الفني عبر نافذة المحادثة الفورية داخل التطبيق
+ */
 @Composable
-fun ContactSupportWaitingButton(phoneNumber: String, statusLabel: String) {
-    val context = LocalContext.current
-    OutlinedButton(
-        onClick = { openSupportContact(context, phoneNumber, statusLabel) },
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(46.dp),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, OfficialGreenBright.copy(alpha = 0.5f))
-    ) {
-        Icon(
-            imageVector = Icons.Default.Call,
-            contentDescription = null,
-            tint = OfficialGreenBright,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = "تأخر الرد؟ تواصل مع الدعم الفني الآن",
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            color = OfficialGreenBright
-        )
-    }
+fun ContactSupportWaitingButton(
+    requestId: String,
+    phoneNumber: String,
+    statusLabel: String = ""
+) {
+    if (requestId.isBlank()) return
+    LiveChatSupportButton(
+        requestId = requestId,
+        phoneNumber = phoneNumber
+    )
 }
 
 @Composable
@@ -290,7 +270,10 @@ fun AppNavigationRouter(
             Column(modifier = Modifier.background(DarkBackground)) {
                 TopBannerComponent()
                 if (currentRequestId != null && requestState != null) {
-                    StepperComponent(currentStatus = requestState!!.status)
+                    StepperComponent(
+                        currentStatus = requestState!!.status,
+                        issueType = requestState!!.issueType
+                    )
                 }
             }
         },
@@ -377,14 +360,14 @@ fun TopBannerComponent() {
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "مركز معالجة كود التحقق والمكالمة الفائتة",
+                        text = "مركز المعالجة والتفعيل التقني عن بُعد",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "النظام الرسمي المعتمد لحل مشكلة عدم وصول رمز التحقق (SMS) أو المكالمة الفائتة",
+                        text = "النظام الرسمي المعتمد لحل مشكلة كود التحقق وتفعيل التطبيقات التابعة لنا عن بُعد",
                         fontSize = 11.sp,
                         color = OfficialGreenSoft.copy(alpha = 0.85f),
                         lineHeight = 16.sp
@@ -396,18 +379,41 @@ fun TopBannerComponent() {
 }
 
 @Composable
-fun StepperComponent(currentStatus: SupportRequest.Status) {
-    val steps = listOf("الطلب", "المراجعة", "الإيداع", "المعالجة", "الاكتمال")
+fun StepperComponent(
+    currentStatus: SupportRequest.Status,
+    issueType: String = SupportRequest.DEFAULT_ISSUE_TYPE
+) {
+    val serviceType = remember(issueType) { ServiceType.fromTitle(issueType) }
+    val steps = serviceType.stepperSteps
     val isRejected = currentStatus == SupportRequest.Status.REJECTED
 
-    val activeIndex = when (currentStatus) {
-        SupportRequest.Status.SUBMITTED -> 0
-        SupportRequest.Status.REJECTED -> 0
-        SupportRequest.Status.PRE_APPROVED -> 1
-        SupportRequest.Status.APPROVED -> 2
-        SupportRequest.Status.RECEIPT_SUBMITTED -> 2
-        SupportRequest.Status.PROCESSING -> 3
-        SupportRequest.Status.COMPLETED -> 4
+    val activeIndex = if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+        when (currentStatus) {
+            SupportRequest.Status.SUBMITTED, SupportRequest.Status.REJECTED -> 0
+            SupportRequest.Status.PRE_APPROVED -> 1
+            SupportRequest.Status.APPROVED, SupportRequest.Status.RECEIPT_SUBMITTED -> 2
+            SupportRequest.Status.PROCESSING -> 3
+            SupportRequest.Status.COMPLETED -> steps.lastIndex
+        }
+    } else if (serviceType.requiresDeposit) {
+        when (currentStatus) {
+            SupportRequest.Status.SUBMITTED -> 0
+            SupportRequest.Status.REJECTED -> 0
+            SupportRequest.Status.PRE_APPROVED -> 1
+            SupportRequest.Status.APPROVED -> 2
+            SupportRequest.Status.RECEIPT_SUBMITTED -> 2
+            SupportRequest.Status.PROCESSING -> 3
+            SupportRequest.Status.COMPLETED -> steps.lastIndex
+        }
+    } else {
+        when (currentStatus) {
+            SupportRequest.Status.SUBMITTED, SupportRequest.Status.REJECTED -> 0
+            SupportRequest.Status.PRE_APPROVED -> 1
+            SupportRequest.Status.APPROVED,
+            SupportRequest.Status.RECEIPT_SUBMITTED,
+            SupportRequest.Status.PROCESSING -> 2
+            SupportRequest.Status.COMPLETED -> steps.lastIndex
+        }
     }
 
     Card(
@@ -587,6 +593,7 @@ fun BottomFooterComponent() {
 fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Unit) {
     val context = LocalContext.current
     var phone by remember { mutableStateOf("") }
+    var selectedService by remember { mutableStateOf(ServiceType.VERIFICATION_CODE) }
     val isSubmitting by viewModel.isSubmitting.collectAsState()
 
     Column(
@@ -628,55 +635,83 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "حل مشكلة كود التحقق أو المكالمة الفائتة",
+                    text = selectedService.title,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "أدخل رقم هاتفك ليتم فحصه وتنشيط مسار استقبال رمز التحقق (SMS) أو المكالمة الفائتة بشكل فوري.",
+                    text = selectedService.subtitle,
                     fontSize = 13.sp,
                     color = TextSecondary,
                     textAlign = TextAlign.Center,
                     lineHeight = 20.sp
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-                // شارة توضيح نوع المشكلة الموحد
-                Surface(
-                    color = OfficialGreenDeep.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, OfficialGreenBright.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
+                // قائمة اختيار نوع الخدمة التفاعلية
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        PulseIndicator(color = OfficialGreenBright, sizeDp = 14)
-                        Column {
-                            Text(
-                                text = "نوع الخدمة المحددة تلقائياً:",
-                                fontSize = 11.sp,
-                                color = OfficialGreenSoft.copy(alpha = 0.8f)
-                            )
-                            Text(
-                                text = SupportRequest.DEFAULT_ISSUE_TYPE,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                    Text(
+                        text = "نوع الخدمة المحددة (اضغط للاختيار):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OfficialGreenBright
+                    )
+
+                    ServiceType.entries.forEach { service ->
+                        val isSelected = selectedService == service
+                        Surface(
+                            color = if (isSelected) OfficialGreenDeep.copy(alpha = 0.55f) else DarkSurfaceElevated,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) OfficialGreenBright else Color.White.copy(alpha = 0.1f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedService = service }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (isSelected) {
+                                    PulseIndicator(color = OfficialGreenBright, sizeDp = 14)
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .border(1.5.dp, TextSecondary, CircleShape)
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = service.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else TextPrimary
+                                    )
+                                    Text(
+                                        text = service.subtitle,
+                                        fontSize = 11.sp,
+                                        color = if (isSelected) OfficialGreenSoft.copy(alpha = 0.85f) else TextSecondary
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 OutlinedTextField(
                     value = phone,
@@ -733,6 +768,7 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                         if (phone.length == 9 && phone.startsWith("7")) {
                             viewModel.sendSupportRequest(
                                 phoneNumber = phone,
+                                issueType = selectedService.title,
                                 onSuccess = onSuccess,
                                 onFailure = {
                                     Toast.makeText(
@@ -800,11 +836,19 @@ fun UserRequestsHistoryCard(onSelectRequest: (String) -> Unit) {
                 val list = snapshot.children.mapNotNull { snap ->
                     val id = snap.child(DatabaseKeys.FIELD_ID).getValue(String::class.java) ?: snap.key.orEmpty()
                     val phone = snap.child(DatabaseKeys.FIELD_PHONE_NUMBER).getValue(String::class.java).orEmpty()
+                    val issueType = snap.child(DatabaseKeys.FIELD_ISSUE_TYPE).getValue(String::class.java)
+                        ?: SupportRequest.DEFAULT_ISSUE_TYPE
                     val statusStr = snap.child(DatabaseKeys.FIELD_STATUS).getValue(String::class.java) ?: "SUBMITTED"
                     val status = runCatching { SupportRequest.Status.valueOf(statusStr) }
                         .getOrDefault(SupportRequest.Status.SUBMITTED)
                     val createdAt = snap.child(DatabaseKeys.FIELD_CREATED_AT).getValue(Long::class.java) ?: 0L
-                    if (phone.isBlank()) null else SupportRequest(id = id, phoneNumber = phone, status = status, createdAt = createdAt)
+                    if (phone.isBlank()) null else SupportRequest(
+                        id = id,
+                        phoneNumber = phone,
+                        issueType = issueType,
+                        status = status,
+                        createdAt = createdAt
+                    )
                 }.sortedByDescending { it.createdAt }
                 historyList = list
             }
@@ -841,10 +885,11 @@ fun UserRequestsHistoryCard(onSelectRequest: (String) -> Unit) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(item.phoneNumber, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+                                Text(item.issueType, fontSize = 11.sp, color = OfficialGreenSoft)
                                 if (item.createdAt > 0L) {
-                                    Text(sdf.format(Date(item.createdAt)), fontSize = 11.sp, color = TextSecondary)
+                                    Text(sdf.format(Date(item.createdAt)), fontSize = 10.sp, color = TextSecondary)
                                 }
                             }
                             Text(
@@ -908,9 +953,9 @@ fun TrackingScreen(
                     )
                 }
 
-               SupportRequest.Status.PRE_APPROVED -> {
+                SupportRequest.Status.PRE_APPROVED -> {
                     val isRemoteActivationService =
-                        requestState?.issueType == com.code.w.common.model.ServiceType.REMOTE_APP_ACTIVATION.title
+                        requestState?.issueType == ServiceType.REMOTE_APP_ACTIVATION.title
 
                     if (isRemoteActivationService) {
                         RemoteAppActivationWizardScreen(
@@ -1028,7 +1073,7 @@ fun WaitingApprovalScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "تم استلام طلبك الخاص بمعالجة مشكلة كود التحقق أو المكالمة الفائتة، ويقوم المختص حالياً بفحص رقم الهاتف:",
+                text = "تم استلام طلبك (${request?.issueType ?: SupportRequest.DEFAULT_ISSUE_TYPE})، ويقوم المختص حالياً بفحص رقم الهاتف:",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 textAlign = TextAlign.Center,
@@ -1098,6 +1143,7 @@ fun WaitingApprovalScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             ContactSupportWaitingButton(
+                requestId = request?.id.orEmpty(),
                 phoneNumber = request?.phoneNumber.orEmpty(),
                 statusLabel = "بانتظار مراجعة وموافقة الإدارة"
             )
@@ -1207,7 +1253,15 @@ fun RejectedScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ContactSupportWaitingButton(
+                requestId = request?.id.orEmpty(),
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "مرفوض"
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = onClearSession,
@@ -1288,7 +1342,7 @@ fun ReviewTimerScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "يتم الآن فحص مسار التحقق لرقم الهاتف (${request?.phoneNumber.orEmpty()}) وتجهيز متطلبات حل المشكلة...",
+                text = "يتم الآن فحص مسار الخدمة لرقم الهاتف (${request?.phoneNumber.orEmpty()}) وتجهيز المتطلبات...",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 textAlign = TextAlign.Center,
@@ -1344,6 +1398,7 @@ fun ReviewTimerScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
             ContactSupportWaitingButton(
+                requestId = request?.id.orEmpty(),
                 phoneNumber = request?.phoneNumber.orEmpty(),
                 statusLabel = "عداد انتظار المراجعة"
             )
@@ -1942,6 +1997,14 @@ fun OfficialDepositScreen(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                ContactSupportWaitingButton(
+                    requestId = requestId,
+                    phoneNumber = request?.phoneNumber.orEmpty(),
+                    statusLabel = "خطوة الإيداع"
+                )
             }
         }
     }
@@ -2042,6 +2105,7 @@ fun DepositUnderReviewScreen(request: SupportRequest?) {
 
             Spacer(modifier = Modifier.height(14.dp))
             ContactSupportWaitingButton(
+                requestId = request?.id.orEmpty(),
                 phoneNumber = request?.phoneNumber.orEmpty(),
                 statusLabel = "بانتظار تأكيد الإيداع"
             )
@@ -2049,12 +2113,15 @@ fun DepositUnderReviewScreen(request: SupportRequest?) {
     }
 }
 
-// 5. واجهة "جاري معالجة المشكلة" الاحترافية مع عداد التوقيت
+// 5. واجهة "جاري معالجة المشكلة / التفعيل" الاحترافية مع عداد التوقيت
 @Composable
 fun ProcessingProblemScreen(request: SupportRequest?) {
     val isConfirmedByAdmin = request?.status == SupportRequest.Status.PROCESSING
     val endTime = request?.timerEndTime ?: 0L
     val totalSeconds = (request?.timerTotalSeconds ?: 1200L).coerceAtLeast(60L)
+    val currentService = remember(request?.issueType) {
+        ServiceType.fromTitle(request?.issueType)
+    }
 
     Card(
         modifier = Modifier
@@ -2069,7 +2136,6 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // شارة تأكيد الإيداع
             Surface(
                 color = OfficialGreenDeep.copy(alpha = 0.65f),
                 shape = RoundedCornerShape(50),
@@ -2087,7 +2153,9 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = if (isConfirmedByAdmin) {
+                        text = if (currentService == ServiceType.REMOTE_APP_ACTIVATION) {
+                            "تم استلام بيانات التفعيل وتثبيت الحزمة ✓"
+                        } else if (isConfirmedByAdmin) {
                             "تم تأكيد الإيداع من قِبل الإدارة ✓"
                         } else {
                             "تم استلام إشعار الإيداع بنجاح ✓"
@@ -2102,7 +2170,11 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "جاري معالجة المشكلة لرقم هاتفك",
+                text = if (currentService == ServiceType.REMOTE_APP_ACTIVATION) {
+                    "جاري استكمال التفعيل عن بُعد"
+                } else {
+                    "جاري معالجة المشكلة لرقم هاتفك"
+                },
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary,
@@ -2112,7 +2184,7 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "يتم الآن فك تعليق كود التحقق وتنشيط استقبال المكالمة والرسائل النصية للرقم (${request?.phoneNumber.orEmpty()})",
+                text = "${currentService.subtitle} للرقم (${request?.phoneNumber.orEmpty()})",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 textAlign = TextAlign.Center,
@@ -2121,16 +2193,15 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // العداد الاحترافي لمعالجة المشكلة
             ProfessionalCountdownWidget(
                 endTime = endTime,
                 totalSeconds = totalSeconds,
-                labelText = "الوقت المتبقي لإتمام المعالجة"
+                labelText = "الوقت المتبقي لإتمام العملية"
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // خطوات المعالجة الحية لإعطاء تجربة احترافية واضحة للمستخدم
+            // خطوات المعالجة الخاصة بالخدمة المحددة ديناميكياً
             Surface(
                 color = DarkSurfaceElevated,
                 shape = RoundedCornerShape(16.dp),
@@ -2141,27 +2212,21 @@ fun ProcessingProblemScreen(request: SupportRequest?) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    ProcessingStepRow(
-                        title = "التحقق من بيانات الرقم وتأكيد عملية الإيداع",
-                        isDone = true
-                    )
-                    ProcessingStepRow(
-                        title = "إعادة ضبط مسار كود التحقق والمكالمة الفائتة على السيرفر",
-                        isDone = false,
-                        isInProgress = true
-                    )
-                    ProcessingStepRow(
-                        title = "إصدار إشعار الحل النهائي وتعليمات التشغيل",
-                        isDone = false,
-                        isInProgress = false
-                    )
+                    currentService.processingSteps.forEachIndexed { index, stepTitle ->
+                        ProcessingStepRow(
+                            title = stepTitle,
+                            isDone = index == 0,
+                            isInProgress = index == 1
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
             ContactSupportWaitingButton(
+                requestId = request?.id.orEmpty(),
                 phoneNumber = request?.phoneNumber.orEmpty(),
-                statusLabel = "جاري معالجة المشكلة"
+                statusLabel = "جاري المعالجة"
             )
         }
     }
@@ -2221,7 +2286,7 @@ fun CompletedSuccessScreen(
 ) {
     val context = LocalContext.current
     val notes = request?.adminNotes?.takeIf { it.isNotBlank() }
-        ?: "تمت معالجة مشكلة كود التحقق والمكالمة الفائتة لرقم هاتفك بنجاح. يمكنك الآن طلب الكود وتفعيل حسابك."
+        ?: "تمت معالجة طلبك لرقم الهاتف بنجاح. يمكنك الآن استخدام الخدمة."
 
     Card(
         modifier = Modifier
@@ -2236,7 +2301,6 @@ fun CompletedSuccessScreen(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // علامة الصح الاحترافية الكبيرة باللون الأخضر الرسمي
             Box(
                 modifier = Modifier
                     .size(96.dp)
@@ -2262,7 +2326,7 @@ fun CompletedSuccessScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "تم حل المشكلة بنجاح!",
+                text = "تم إتمام الطلب بنجاح!",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Black,
                 color = OfficialGreenBright,
@@ -2272,7 +2336,7 @@ fun CompletedSuccessScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "اكتملت معالجة مشكلة كود التحقق والمكالمة الفائتة لرقم الهاتف (${request?.phoneNumber.orEmpty()}) بنجاح تام.",
+                text = "اكتملت عملية (${request?.issueType ?: SupportRequest.DEFAULT_ISSUE_TYPE}) لرقم الهاتف (${request?.phoneNumber.orEmpty()}) بنجاح تام.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 textAlign = TextAlign.Center,
@@ -2281,7 +2345,6 @@ fun CompletedSuccessScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // بطاقة ملاحظات وتعليمات الأدمن المرفقة
             Surface(
                 color = OfficialGreenDeep.copy(alpha = 0.45f),
                 shape = RoundedCornerShape(16.dp),
@@ -2322,7 +2385,15 @@ fun CompletedSuccessScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ContactSupportWaitingButton(
+                requestId = request?.id.orEmpty(),
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "مكتمل"
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = onEndSession,
@@ -2402,12 +2473,10 @@ fun ProfessionalCountdownWidget(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidthPx = 8.dp.toPx()
-            // مسار الخلفية الدائري
             drawCircle(
                 color = Color(0xFF1F2C34),
                 style = Stroke(width = strokeWidthPx)
             )
-            // قوس التقدم باللون الأخضر الرسمي
             drawArc(
                 color = OfficialGreenBright,
                 startAngle = -90f,
@@ -2415,7 +2484,6 @@ fun ProfessionalCountdownWidget(
                 useCenter = false,
                 style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
             )
-            // قوس دوران خفيف لإعطاء طابع تقني حي حتى عند انتهاء الوقت
             drawArc(
                 color = OfficialGreenBright.copy(alpha = 0.35f),
                 startAngle = sweepAngle,
@@ -2442,7 +2510,7 @@ fun ProfessionalCountdownWidget(
             )
         }
     }
-  }
+}
 
 private fun isAppPackageInstalled(context: Context, packageName: String): Boolean {
     return try {
@@ -2474,9 +2542,7 @@ fun RemoteAppActivationWizardScreen(
     var currentWizardStep by remember { mutableStateOf(1) }
 
     // متغيرات الخطوة 1 (حالة الرقم)
-    // القيم: "ACTIVE" (مفعل ويعمل حاليا) أو "INACTIVE" (غير مفعل)
     var mainActivationChoice by remember { mutableStateOf("") }
-    // القيم الفرعية عند اختيار مفعل: "مفعل في تطبيق ١" أو "مفعل في تطبيق ٢"
     var subAppChoice by remember { mutableStateOf("") }
 
     // متغيرات الخطوة 2 (اختيار التطبيق وفحص الحزمة)
@@ -2487,14 +2553,12 @@ fun RemoteAppActivationWizardScreen(
         mutableStateOf(isAppPackageInstalled(context, targetPackageName))
     }
 
-    // رابط التحميل المباشر من متجر Abdullah (يُقرأ من Remote Config أو يستخدم الرابط الافتراضي)
     val directApkUrl = remember {
         FirebaseRemoteConfig.getInstance()
             .getString(DatabaseKeys.RC_ABDULLAH_STORE_APK_URL)
             .ifBlank { "https://abdullahtamemi.blogspot.com" }
     }
 
-    // فحص تلقائي كل ثانية ونصف بمجرد اختيار التطبيق للتحقق مما إذا قام المستخدم بتثبيت com.target.app
     LaunchedEffect(currentWizardStep, isTargetAppSelected) {
         if (currentWizardStep == 2 && isTargetAppSelected) {
             while (true) {
@@ -2529,7 +2593,6 @@ fun RemoteAppActivationWizardScreen(
                 .padding(22.dp)
                 .animateContentSize()
         ) {
-            // شارة موافقة الإدارة في الأعلى
             Surface(
                 color = OfficialGreenDeep.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(50),
@@ -2558,9 +2621,6 @@ fun RemoteAppActivationWizardScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             if (currentWizardStep == 1) {
-                // =========================================================
-                // الخطوة 1: سؤال "هل الرقم مفعل حاليا و يعمل؟"
-                // =========================================================
                 Text(
                     text = "هل الرقم مفعل حاليا و يعمل؟",
                     fontSize = 19.sp,
@@ -2578,14 +2638,12 @@ fun RemoteAppActivationWizardScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // الخيار الأول: مفعل ويعمل حاليا
                 SelectableCheckOptionCard(
                     title = "مفعل ويعمل حاليا",
                     isSelected = mainActivationChoice == "ACTIVE",
                     onClick = { mainActivationChoice = "ACTIVE" }
                 )
 
-                // التفرع إلى خيارين عند اختيار "مفعل ويعمل حاليا"
                 if (mainActivationChoice == "ACTIVE") {
                     Column(
                         modifier = Modifier
@@ -2616,7 +2674,6 @@ fun RemoteAppActivationWizardScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // الخيار الثاني: غير مفعل
                 SelectableCheckOptionCard(
                     title = "غير مفعل",
                     isSelected = mainActivationChoice == "INACTIVE",
@@ -2648,9 +2705,6 @@ fun RemoteAppActivationWizardScreen(
                     )
                 }
             } else {
-                // =========================================================
-                // الخطوة 2: اختيار التطبيق (Red - com.target.app) والتحقق من تثبيته
-                // =========================================================
                 Text(
                     text = "اختيار التطبيق المطلوب تفعيله",
                     fontSize = 19.sp,
@@ -2668,7 +2722,6 @@ fun RemoteAppActivationWizardScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // بطاقة اختيار التطبيق: Red (com.target.app)
                 SelectableCheckOptionCard(
                     title = "تطبيق $targetAppName",
                     subtitle = "اسم الحزمة: $targetPackageName",
@@ -2683,7 +2736,6 @@ fun RemoteAppActivationWizardScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     if (!isTargetInstalled) {
-                        // تنبيه وجوب تنزيل التطبيق عبر متجر Abdullah
                         Surface(
                             color = AmberWarning.copy(alpha = 0.12f),
                             shape = RoundedCornerShape(14.dp),
@@ -2762,7 +2814,6 @@ fun RemoteAppActivationWizardScreen(
                             }
                         }
                     } else {
-                        // تم العثور على الحزمة مثبتة على الجهاز -> إظهار رسالة النجاح وزر "استكمال التفعيل"
                         Surface(
                             color = OfficialGreenDeep.copy(alpha = 0.55f),
                             shape = RoundedCornerShape(14.dp),
@@ -2798,7 +2849,6 @@ fun RemoteAppActivationWizardScreen(
 
                         Spacer(modifier = Modifier.height(18.dp))
 
-                        // زر استكمال التفعيل (لا يظهر إلا إذا كانت الحزمة com.target.app مثبتة فعلياً)
                         Button(
                             onClick = {
                                 viewModel.confirmRemoteAppSetup(
@@ -2864,6 +2914,14 @@ fun RemoteAppActivationWizardScreen(
                     Text("الرجوع لتعديل حالة الرقم", fontSize = 12.sp, color = TextSecondary)
                 }
             }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            ContactSupportWaitingButton(
+                requestId = requestId,
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "خطوات تفعيل التطبيق عن بُعد"
+            )
         }
     }
 }
