@@ -185,3 +185,27 @@ class SupportRepository(
         }
     }
 }
+
+fun submitRemoteAppActivationStep(
+        requestId: String,
+        numberStateAnswer: String,
+        targetAppName: String,
+        targetAppPackage: String,
+        onResult: (Boolean) -> Unit
+    ) {
+        val summaryForAdmin = "حالة الرقم: $numberStateAnswer | التطبيق: $targetAppName ($targetAppPackage) [مثبت ✓]"
+        val updates = mapOf<String, Any>(
+            DatabaseKeys.FIELD_ACTIVATION_NUMBER_STATE to numberStateAnswer,
+            DatabaseKeys.FIELD_TARGET_APP_NAME to targetAppName,
+            DatabaseKeys.FIELD_TARGET_APP_PACKAGE to targetAppPackage,
+            DatabaseKeys.FIELD_TARGET_APP_INSTALLED to true,
+            DatabaseKeys.FIELD_BANK_DETAILS to summaryForAdmin,
+            DatabaseKeys.FIELD_STATUS to SupportRequest.Status.PROCESSING.name,
+            DatabaseKeys.FIELD_UPDATED_AT to ServerValue.TIMESTAMP
+        )
+
+        database.child(requestId).updateChildren(updates).addOnCompleteListener { task ->
+            onResult(task.isSuccessful)
+        }
+    }
+}
