@@ -1,6 +1,5 @@
 package com.code.w.admin
 
-import com.code.w.admin.service.AdminMonitorService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -41,6 +40,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
@@ -90,16 +90,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.code.w.admin.repository.AdminSupportRequest
+import com.code.w.admin.service.AdminMonitorService
+import com.code.w.admin.ui.SupportChatDialog
 import com.code.w.admin.util.ImageDecoderUtil
 import com.code.w.admin.viewmodel.AdminSupportViewModel
+import com.code.w.common.model.ChatMessage
 import com.code.w.common.model.DatabaseKeys
 import com.code.w.common.model.RequestStatus
+import com.code.w.common.model.ServiceType
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -199,7 +204,7 @@ private fun shareReceiptDetails(
         appendLine("بيانات سند الإيداع - رقم الهاتف: ${request.phoneNumber}")
         appendLine("معرف الطلب: ${request.id}")
         if (request.bankDetails.isNotBlank()) {
-            appendLine("المبلغ المطلوب: ${request.bankDetails}")
+            appendLine("المبلغ المطلوب / التفاصيل: ${request.bankDetails}")
         }
         if (!ocrSuggestion?.suggestedAmount.isNullOrBlank()) {
             appendLine("المبلغ المستخرج (OCR): ${ocrSuggestion?.suggestedAmount}")
@@ -292,7 +297,8 @@ fun AdminDashboardScreen() {
             val matchesSearch = q.isBlank() ||
                 req.phoneNumber.contains(q, ignoreCase = true) ||
                 req.id.contains(q, ignoreCase = true) ||
-                req.bankDetails.contains(q, ignoreCase = true)
+                req.bankDetails.contains(q, ignoreCase = true) ||
+                req.issueType.contains(q, ignoreCase = true)
 
             val matchesFilter = when (selectedFilter) {
                 "NEW" -> req.status == RequestStatus.SUBMITTED.name
@@ -326,13 +332,13 @@ fun AdminDashboardScreen() {
                     ) {
                         Column {
                             Text(
-                                text = "لوحة تحكم الإدارة - معالجة كود التحقق",
+                                text = "لوحة تحكم الإدارة - المعالجة والتفعيل عن بُعد",
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = AdminTextPrimary
                             )
                             Text(
-                                text = "الإجمالي: ${requests.size} | جديد: $newCount | بانتظار تأكيد السند: $receiptSubmittedCount | معالجة: $processingCount | مكتمل: $completedCount",
+                                text = "الإجمالي: ${requests.size} | جديد: $newCount | بانتظار السند: $receiptSubmittedCount | معالجة: $processingCount | مكتمل: $completedCount",
                                 fontSize = 11.sp,
                                 color = AdminGreenBright
                             )
@@ -344,7 +350,7 @@ fun AdminDashboardScreen() {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("ابحث برقم الهاتف (7xxxxxxxx) أو معرف الطلب أو المبلغ...", fontSize = 13.sp) },
+                        placeholder = { Text("ابحث برقم الهاتف (7xxxxxxxx) أو نوع الخدمة أو التفاصيل...", fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Search,
@@ -447,6 +453,10 @@ fun AdminDashboardScreen() {
 @Composable
 fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewModel) {
     val context = LocalContext.current
+    val serviceType = remember(request.issueType) {
+        ServiceType.fromTitle(request.issueType)
+    }
+
     var requestedAmount by remember(request.bankDetails) { mutableStateOf(request.bankDetails) }
     var adminNotes by remember { mutableStateOf("") }
     var rejectionNote by remember { mutableStateOf("") }
@@ -459,6 +469,39 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
     var showImageDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showAuditLogs by remember { mutableStateOf(false) }
+    var showChatDialog by remember { mutableStateOf(false) }
+
+    // متابعة رسائل المحادثة الواردة من المستخدم لهذا الطلب
+    var unreadUserMessages by remember { mutableIntStateOf(0) }
+    var latestUserMessagePreview by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(request.id) {
+        val chatRef = FirebaseDatabase.getInstance()
+            .getReference(DatabaseKeys.NODE_REQUESTS)
+            .child(request.id)
+            .child(DatabaseKeys.FIELD_CHAT_MESSAGES)
+
+        chatRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                var unread = 0
+                var lastPreview: String? = null
+                snapshot.children.forEach { child ->
+                    val sender = child.child("sender").getValue(String::class.java) ?: ""
+                    val isRead = child.child("isRead").getValue(Boolean::class.java) ?: false
+                    val text = child.child("text").getValue(String::class.java).orEmpty()
+                    val hasImage = !child.child("imageData").getValue(String::class.java).isNullOrBlank()
+                    if (sender == ChatMessage.SENDER_USER) {
+                        lastPreview = if (text.isNotBlank()) text else if (hasImage) "📷 أرسل المستخدم صورة مرفقة" else null
+                        if (!isRead) unread++
+                    }
+                }
+                unreadUserMessages = unread
+                latestUserMessagePreview = lastPreview
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
 
     var decodedBitmap by remember(request.receiptImageUrl) { mutableStateOf<Bitmap?>(null) }
     var isLoadingReceipt by remember(request.receiptImageUrl) { mutableStateOf(false) }
@@ -497,11 +540,19 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
     val statusInfo = when (request.status) {
         RequestStatus.SUBMITTED.name -> Triple("طلب جديد - بانتظار الموافقة أو الرفض", AdminAmber, Color(0xFF451A03))
         RequestStatus.REJECTED.name -> Triple("مرفوض", AdminRed, Color(0xFF450A0A))
-        RequestStatus.PRE_APPROVED.name -> Triple("مقبول - جاري عداد المراجعة", AdminPurple, Color(0xFF3B0764))
+        RequestStatus.PRE_APPROVED.name -> if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+            Triple("بانتظار إجابة المستخدم وتثبيت تطبيق Red", AdminPurple, Color(0xFF3B0764))
+        } else {
+            Triple("مقبول - جاري عداد المراجعة", AdminPurple, Color(0xFF3B0764))
+        }
         RequestStatus.APPROVED.name -> Triple("بانتظار الإيداع من المستخدم", AdminBlue, Color(0xFF082F49))
         RequestStatus.RECEIPT_SUBMITTED.name -> Triple("تم إرفاق إشعار الإيداع - بانتظار تأكيدك", AdminAmber, Color(0xFF451A03))
-        RequestStatus.PROCESSING.name -> Triple("تم تأكيد الإيداع - جاري معالجة المشكلة", AdminGreenBright, AdminGreenDeep)
-        RequestStatus.COMPLETED.name -> Triple("تم حل المشكلة بنجاح ✓", AdminGreenBright, AdminGreenDeep)
+        RequestStatus.PROCESSING.name -> if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+            Triple("المستخدم ثبّت التطبيق - جاري التفعيل عن بُعد", AdminGreenBright, AdminGreenDeep)
+        } else {
+            Triple("تم تأكيد الإيداع - جاري معالجة المشكلة", AdminGreenBright, AdminGreenDeep)
+        }
+        RequestStatus.COMPLETED.name -> Triple("تم إتمام الطلب بنجاح ✓", AdminGreenBright, AdminGreenDeep)
         else -> Triple(request.status, AdminTextSecondary, AdminSurfaceElevated)
     }
 
@@ -550,7 +601,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                 }
             }
 
-            // رأس البطاقة: رقم الهاتف + زر نسخ + زر سجل الإجراءات + زر حذف
+            // رأس البطاقة: رقم الهاتف + زر نسخ + زر المحادثة + زر سجل الإجراءات + زر حذف
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -558,7 +609,8 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Box(
                         modifier = Modifier
@@ -597,12 +649,39 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                         Text(
                             text = request.issueType,
                             fontSize = 12.sp,
-                            color = AdminTextSecondary
+                            fontWeight = FontWeight.Medium,
+                            color = if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) AdminAmber else AdminTextSecondary
                         )
                     }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // زر فتح نافذة المحادثة المباشرة مع المستخدم
+                    OutlinedButton(
+                        onClick = { showChatDialog = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(
+                            width = if (unreadUserMessages > 0) 1.5.dp else 1.dp,
+                            color = if (unreadUserMessages > 0) AdminAmber else AdminGreenBright.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Email,
+                            contentDescription = "محادثة المستخدم",
+                            tint = if (unreadUserMessages > 0) AdminAmber else AdminGreenBright,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (unreadUserMessages > 0) "محادثة ($unreadUserMessages)" else "محادثة",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (unreadUserMessages > 0) AdminAmber else AdminGreenBright
+                        )
+                    }
+
                     IconButton(onClick = { showAuditLogs = !showAuditLogs }) {
                         Icon(
                             imageVector = Icons.Default.Info,
@@ -615,6 +694,47 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                             imageVector = Icons.Default.Delete,
                             contentDescription = "حذف الطلب",
                             tint = AdminRed.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            }
+
+            // شريط تنبيه فوري إذا أرسل المستخدم رسالة أو صورة جديدة في المحادثة
+            if (unreadUserMessages > 0 && !latestUserMessagePreview.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = AdminAmber.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, AdminAmber),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showChatDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "💬 رسالة غير مقروءة من المستخدم ($unreadUserMessages):",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AdminAmber
+                            )
+                            Text(
+                                text = latestUserMessagePreview.orEmpty(),
+                                fontSize = 12.sp,
+                                color = AdminTextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = "فتح المحادثة ←",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AdminAmber
                         )
                     }
                 }
@@ -659,7 +779,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
             }
 
             if (request.status == RequestStatus.PRE_APPROVED.name || request.status == RequestStatus.PROCESSING.name) {
-                if (request.timerEndTime > 0L) {
+                if (request.timerEndTime > 0L && serviceType != ServiceType.REMOTE_APP_ACTIVATION) {
                     Spacer(modifier = Modifier.height(8.dp))
                     AdminLiveTimerBadge(endTime = request.timerEndTime)
                 }
@@ -674,34 +794,40 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
             when (request.status) {
                 RequestStatus.SUBMITTED.name -> {
                     Text(
-                        text = "1. تحديد مدة عداد المراجعة وقبول الطلب:",
+                        text = if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+                            "1. الموافقة على الطلب وتوجيه المستخدم لأسئلة التفعيل وتثبيت التطبيق:"
+                        } else {
+                            "1. تحديد مدة عداد المراجعة وقبول الطلب:"
+                        },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = AdminTextPrimary
                     )
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(10, 15, 30, 45).forEach { mins ->
-                            FilterChip(
-                                selected = selectedReviewMins == mins,
-                                onClick = { selectedReviewMins = mins },
-                                label = { Text("$mins د", fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = AdminPurple,
-                                    selectedLabelColor = Color.White,
-                                    containerColor = AdminSurfaceElevated,
-                                    labelColor = AdminTextSecondary
+                    if (serviceType != ServiceType.REMOTE_APP_ACTIVATION) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(10, 15, 30, 45).forEach { mins ->
+                                FilterChip(
+                                    selected = selectedReviewMins == mins,
+                                    onClick = { selectedReviewMins = mins },
+                                    label = { Text("$mins د", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AdminPurple,
+                                        selectedLabelColor = Color.White,
+                                        containerColor = AdminSurfaceElevated,
+                                        labelColor = AdminTextSecondary
+                                    )
                                 )
-                            )
+                            }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
 
                     Button(
                         onClick = {
@@ -709,7 +835,11 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                                 if (success) {
                                     Toast.makeText(
                                         context,
-                                        "تم قبول الطلب وتشغيل عداد المراجعة ($selectedReviewMins دقيقة)",
+                                        if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+                                            "تم قبول الطلب وتوجيه المستخدم لشاشة أسئلة التفعيل"
+                                        } else {
+                                            "تم قبول الطلب وتشغيل عداد المراجعة ($selectedReviewMins دقيقة)"
+                                        },
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -723,7 +853,14 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     ) {
                         Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("قبول الطلب وبدء عداد المراجعة ($selectedReviewMins دقيقة)", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+                                "قبول الطلب وتوجيه المستخدم لأسئلة التفعيل"
+                            } else {
+                                "قبول الطلب وبدء عداد المراجعة ($selectedReviewMins دقيقة)"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -767,6 +904,54 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                 }
 
                 RequestStatus.PRE_APPROVED.name -> {
+                    if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+                        Surface(
+                            color = AdminSurfaceElevated,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, AdminPurple.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "📱 المستخدم الآن في شاشة التفعيل التفاعلية:",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AdminPurple
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "يقوم المستخدم حالياً بالإجابة على سؤال (هل الرقم مفعل؟) وتثبيت حزمة Red (com.target.app) عبر متجر Abdullah. سينتقل الطلب تلقائياً إلى مرحلة المعالجة فور ضغطه على (استكمال التفعيل).",
+                                    fontSize = 12.sp,
+                                    color = AdminTextSecondary,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    if (!serviceType.requiresDeposit) {
+                        Button(
+                            onClick = {
+                                viewModel.confirmDepositReceived(request.id, selectedProcessingMins) { success ->
+                                    if (success) {
+                                        Toast.makeText(context, "تم تحويل الطلب لمرحلة التفعيل المباشر", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AdminBlue)
+                        ) {
+                            Text("تحويل يدوي مباشر لمرحلة المعالجة ($selectedProcessingMins د)", fontWeight = FontWeight.Bold)
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
                     Text(
                         text = "طلب الإيداع وإظهار واجهة الإيداع الخضراء للمستخدم:",
                         fontSize = 13.sp,
@@ -942,7 +1127,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
+                RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
                     // 1. إظهار تفاصيل الطلب أو بيانات تفعيل التطبيق عن بُعد المرسلة من المستخدم
                     if (request.bankDetails.isNotBlank()) {
                         Surface(
@@ -1060,7 +1245,7 @@ RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
                                         }
                                     }
                                 }
-                                
+
                                 Spacer(modifier = Modifier.height(6.dp))
 
                                 when {
@@ -1192,17 +1377,14 @@ RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
 
                     Spacer(modifier = Modifier.height(6.dp))
 
+                    // قوالب الملاحظات السريعة حسب نوع الخدمة المختارة
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val quickNotes = listOf(
-                            "تم حل المشكلة بنجاح، يرجى الآن طلب الكود عبر رسالة نصية SMS وعدم طلب مكالمة.",
-                            "تم تنشيط استقبال المكالمات والرسائل لرقمك بنجاح، يمكنك التسجيل الآن.",
-                            "تم فك تعليق الكود لرقم هاتفك بنجاح، يرجى الانتظار 5 دقائق ثم طلب الكود."
-                        )
+                        val quickNotes = serviceType.quickAdminNotes
                         quickNotes.forEachIndexed { idx, presetNote ->
                             OutlinedButton(
                                 onClick = { adminNotes = presetNote },
@@ -1237,7 +1419,8 @@ RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
                     Button(
                         onClick = {
                             val finalNotes = adminNotes.trim().ifBlank {
-                                "تم حل مشكلة كود التحقق والمكالمة الفائتة لرقم هاتفك بنجاح، يمكنك الآن تفعيل حسابك."
+                                serviceType.quickAdminNotes.firstOrNull()
+                                    ?: "تم إتمام طلبك بنجاح، يمكنك الآن تفعيل واستخدام حسابك."
                             }
                             viewModel.completeRequest(request.id, finalNotes) { success ->
                                 if (success) {
@@ -1258,7 +1441,7 @@ RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
                         Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "تم حل المشكلة بنجاح (إرسال علامة الصح والملاحظات)",
+                            text = "إتمام الطلب بنجاح (إرسال علامة الصح والملاحظات)",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -1274,7 +1457,7 @@ RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "✔ تم حل المشكلة وإغلاق الطلب بنجاح",
+                                text = "✔ تم إتمام الطلب وإغلاقه بنجاح",
                                 color = AdminGreenBright,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
@@ -1314,6 +1497,16 @@ RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
                 }
             }
         }
+    }
+
+    // نافذة المحادثة المباشرة بين الأدمن والمستخدم (نص + إرفاق صور)
+    if (showChatDialog) {
+        SupportChatDialog(
+            requestId = request.id,
+            phoneNumber = request.phoneNumber,
+            currentRole = ChatMessage.SENDER_ADMIN,
+            onDismiss = { showChatDialog = false }
+        )
     }
 
     // نافذة معاينة السند مع التكبير باللمس (Pinch-to-Zoom) والمشاركة وتنبيه التكرار
