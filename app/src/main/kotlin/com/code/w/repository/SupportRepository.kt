@@ -184,7 +184,6 @@ class SupportRepository(
             onResult(task.isSuccessful)
         }
     }
-}
 
 fun submitRemoteAppActivationStep(
         requestId: String,
