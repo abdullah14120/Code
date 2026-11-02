@@ -5,8 +5,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
-   <queries>
+   <!-- السماح للتطبيق بفحص تثبيت متجر Abdullah والتطبيقات الثلاثة المستهدفة -->
+    <queries>
+        <package android:name="com.fix.engine.abdullah" />
         <package android:name="com.target.app" />
+        <package android:name="com.obwhatsapp" />
+        <package android:name="com.nasa" />
     </queries>
     
     <application
