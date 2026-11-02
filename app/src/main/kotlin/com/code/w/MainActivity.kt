@@ -2442,10 +2442,8 @@ fun ProfessionalCountdownWidget(
             )
         }
     }
-    
-    /**
- * دالة التحقق الفعلي من تثبيت الحزمة (com.target.app) على جهاز المستخدم
- */
+  }
+
 private fun isAppPackageInstalled(context: Context, packageName: String): Boolean {
     return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
