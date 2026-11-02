@@ -28,11 +28,15 @@ object DatabaseKeys {
     const val FIELD_AUDIT_LOGS = "auditLogs"
 
     // حقول خدمة تفعيل التطبيق عن بُعد
+    // حقول خدمة تفعيل التطبيق عن بُعد وملف الـ ZIP
     const val FIELD_ACTIVATION_NUMBER_STATE = "activationNumberState"
     const val FIELD_TARGET_APP_NAME = "targetAppName"
     const val FIELD_TARGET_APP_PACKAGE = "targetAppPackage"
     const val FIELD_TARGET_APP_INSTALLED = "targetAppInstalled"
+    const val FIELD_ACTIVATION_ZIP_URL = "activationZipUrl"
+    const val FIELD_RESTORE_COMPLETED = "restoreCompleted"
 
-    // مفتاح رابط التحميل المباشر في Remote Config
-    const val RC_ABDULLAH_STORE_APK_URL = "abdullah_store_red_apk_url"
+    // حزمة متجر عبدالله الرسمية
+    const val ABDULLAH_STORE_PACKAGE = "com.fix.engine.abdullah"
+    const val RC_ABDULLAH_STORE_APK_URL = "abdullah_store_apk_url"
 }
