@@ -55,6 +55,25 @@ class UserSupportViewModel : ViewModel() {
         }
     }
 
+    fun confirmRemoteAppSetup(
+        requestId: String,
+        numberStateAnswer: String,
+        targetAppName: String,
+        targetAppPackage: String,
+        onComplete: (Boolean) -> Unit
+    ) {
+        _isUploading.value = true
+        repository.submitRemoteAppActivationStep(
+            requestId = requestId,
+            numberStateAnswer = numberStateAnswer,
+            targetAppName = targetAppName,
+            targetAppPackage = targetAppPackage
+        ) { success ->
+            _isUploading.value = false
+            onComplete(success)
+        }
+    }
+
     fun startObservingRequest(requestId: String) {
         observeJob?.cancel()
         observeJob = viewModelScope.launch {
