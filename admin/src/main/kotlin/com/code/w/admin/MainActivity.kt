@@ -942,8 +942,35 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                     }
                 }
 
-                RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
-                    // عرض ملف الـ PDF أو صورة الإشعار المرفقة من المستخدم + نتائج قراءة الـ OCR
+RequestStatus.RECEIPT_SUBMITTED.name, RequestStatus.PROCESSING.name -> {
+                    // 1. إظهار تفاصيل الطلب أو بيانات تفعيل التطبيق عن بُعد المرسلة من المستخدم
+                    if (request.bankDetails.isNotBlank()) {
+                        Surface(
+                            color = AdminSurfaceElevated,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, AdminGreenBright.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "تفاصيل الطلب / بيانات التفعيل المرسلة من المستخدم:",
+                                    fontSize = 12.sp,
+                                    color = AdminTextSecondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = request.bankDetails,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AdminGreenBright
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. عرض ملف الـ PDF أو صورة الإشعار المرفقة من المستخدم + نتائج قراءة الـ OCR
                     if (request.receiptImageUrl.isNotBlank()) {
                         Surface(
                             color = AdminSurfaceElevated,
@@ -1033,7 +1060,7 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                                         }
                                     }
                                 }
-
+                                
                                 Spacer(modifier = Modifier.height(6.dp))
 
                                 when {
