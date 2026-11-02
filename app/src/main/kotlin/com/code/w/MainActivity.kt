@@ -908,11 +908,23 @@ fun TrackingScreen(
                     )
                 }
 
-                SupportRequest.Status.PRE_APPROVED -> {
-                    ReviewTimerScreen(
-                        request = requestState,
-                        attachedReceipt = attachedReceipt
-                    )
+               SupportRequest.Status.PRE_APPROVED -> {
+                    val isRemoteActivationService =
+                        requestState?.issueType == com.code.w.common.model.ServiceType.REMOTE_APP_ACTIVATION.title
+
+                    if (isRemoteActivationService) {
+                        RemoteAppActivationWizardScreen(
+                            requestId = requestId,
+                            request = requestState,
+                            viewModel = viewModel,
+                            isSubmittingStep = isUploading
+                        )
+                    } else {
+                        ReviewTimerScreen(
+                            request = requestState,
+                            attachedReceipt = attachedReceipt
+                        )
+                    }
                 }
 
                 SupportRequest.Status.APPROVED -> {
@@ -2428,6 +2440,499 @@ fun ProfessionalCountdownWidget(
                 color = OfficialGreenBright,
                 fontWeight = FontWeight.Medium
             )
+        }
+    }
+    
+    /**
+ * دالة التحقق الفعلي من تثبيت الحزمة (com.target.app) على جهاز المستخدم
+ */
+private fun isAppPackageInstalled(context: Context, packageName: String): Boolean {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageInfo(
+                packageName,
+                android.content.pm.PackageManager.PackageInfoFlags.of(0)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(packageName, 0)
+        }
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
+@Composable
+fun RemoteAppActivationWizardScreen(
+    requestId: String,
+    request: SupportRequest?,
+    viewModel: UserSupportViewModel,
+    isSubmittingStep: Boolean
+) {
+    val context = LocalContext.current
+
+    // المرحلة الداخلية: 1 = سؤال هل الرقم مفعل؟ | 2 = اختيار التطبيق والتحقق من تثبيته
+    var currentWizardStep by remember { mutableStateOf(1) }
+
+    // متغيرات الخطوة 1 (حالة الرقم)
+    // القيم: "ACTIVE" (مفعل ويعمل حاليا) أو "INACTIVE" (غير مفعل)
+    var mainActivationChoice by remember { mutableStateOf("") }
+    // القيم الفرعية عند اختيار مفعل: "مفعل في تطبيق ١" أو "مفعل في تطبيق ٢"
+    var subAppChoice by remember { mutableStateOf("") }
+
+    // متغيرات الخطوة 2 (اختيار التطبيق وفحص الحزمة)
+    val targetAppName = "Red"
+    val targetPackageName = "com.target.app"
+    var isTargetAppSelected by remember { mutableStateOf(false) }
+    var isTargetInstalled by remember {
+        mutableStateOf(isAppPackageInstalled(context, targetPackageName))
+    }
+
+    // رابط التحميل المباشر من متجر Abdullah (يُقرأ من Remote Config أو يستخدم الرابط الافتراضي)
+    val directApkUrl = remember {
+        FirebaseRemoteConfig.getInstance()
+            .getString(DatabaseKeys.RC_ABDULLAH_STORE_APK_URL)
+            .ifBlank { "https://abdullahtamemi.blogspot.com" }
+    }
+
+    // فحص تلقائي كل ثانية ونصف بمجرد اختيار التطبيق للتحقق مما إذا قام المستخدم بتثبيت com.target.app
+    LaunchedEffect(currentWizardStep, isTargetAppSelected) {
+        if (currentWizardStep == 2 && isTargetAppSelected) {
+            while (true) {
+                isTargetInstalled = isAppPackageInstalled(context, targetPackageName)
+                delay(1500L)
+            }
+        }
+    }
+
+    val isStep1Valid = when (mainActivationChoice) {
+        "ACTIVE" -> subAppChoice.isNotBlank()
+        "INACTIVE" -> true
+        else -> false
+    }
+
+    val finalNumberStateText = when (mainActivationChoice) {
+        "ACTIVE" -> "مفعل ويعمل حاليا ($subAppChoice)"
+        "INACTIVE" -> "غير مفعل"
+        else -> ""
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(OfficialGreenBorder, RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(22.dp)
+                .animateContentSize()
+        ) {
+            // شارة موافقة الإدارة في الأعلى
+            Surface(
+                color = OfficialGreenDeep.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(50),
+                border = OfficialGreenBorder
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = OfficialGreenBright,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "تمت موافقة الإدارة • خطوة $currentWizardStep من 2",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OfficialGreenSoft
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (currentWizardStep == 1) {
+                // =========================================================
+                // الخطوة 1: سؤال "هل الرقم مفعل حاليا و يعمل؟"
+                // =========================================================
+                Text(
+                    text = "هل الرقم مفعل حاليا و يعمل؟",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "يرجى تحديد الحالة الحالية للرقم (${request?.phoneNumber.orEmpty()}) للمتابعة:",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // الخيار الأول: مفعل ويعمل حاليا
+                SelectableCheckOptionCard(
+                    title = "مفعل ويعمل حاليا",
+                    isSelected = mainActivationChoice == "ACTIVE",
+                    onClick = { mainActivationChoice = "ACTIVE" }
+                )
+
+                // التفرع إلى خيارين عند اختيار "مفعل ويعمل حاليا"
+                if (mainActivationChoice == "ACTIVE") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 18.dp, top = 10.dp, bottom = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "حدد التطبيق المفعل فيه الرقم حالياً:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OfficialGreenBright
+                        )
+
+                        SelectableCheckOptionCard(
+                            title = "مفعل في تطبيق ١",
+                            isSelected = subAppChoice == "مفعل في تطبيق ١",
+                            onClick = { subAppChoice = "مفعل في تطبيق ١" }
+                        )
+
+                        SelectableCheckOptionCard(
+                            title = "مفعل في تطبيق ٢",
+                            isSelected = subAppChoice == "مفعل في تطبيق ٢",
+                            onClick = { subAppChoice = "مفعل في تطبيق ٢" }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // الخيار الثاني: غير مفعل
+                SelectableCheckOptionCard(
+                    title = "غير مفعل",
+                    isSelected = mainActivationChoice == "INACTIVE",
+                    onClick = {
+                        mainActivationChoice = "INACTIVE"
+                        subAppChoice = ""
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(22.dp))
+
+                Button(
+                    onClick = { currentWizardStep = 2 },
+                    enabled = isStep1Valid,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = OfficialGreenPrimary,
+                        disabledContainerColor = Color(0xFF1F2C34)
+                    )
+                ) {
+                    Text(
+                        text = "استكمال",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            } else {
+                // =========================================================
+                // الخطوة 2: اختيار التطبيق (Red - com.target.app) والتحقق من تثبيته
+                // =========================================================
+                Text(
+                    text = "اختيار التطبيق المطلوب تفعيله",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "اختر التطبيق الذي ترغب بتفعيل رقمك عليه:",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // بطاقة اختيار التطبيق: Red (com.target.app)
+                SelectableCheckOptionCard(
+                    title = "تطبيق $targetAppName",
+                    subtitle = "اسم الحزمة: $targetPackageName",
+                    isSelected = isTargetAppSelected,
+                    onClick = {
+                        isTargetAppSelected = true
+                        isTargetInstalled = isAppPackageInstalled(context, targetPackageName)
+                    }
+                )
+
+                if (isTargetAppSelected) {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (!isTargetInstalled) {
+                        // تنبيه وجوب تنزيل التطبيق عبر متجر Abdullah
+                        Surface(
+                            color = AmberWarning.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = AmberWarning,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = "تنبيه هام لاستكمال التفعيل",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AmberWarning
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text(
+                                    text = "يجب عليك تنزيل وتثبيت تطبيق ($targetAppName) صاحب الحزمة ($targetPackageName) على جهازك حتى يتم استكمال التفعيل.\nيتم تحميل التطبيق عبر (متجر Abdullah) التابع لنا من الزر أدناه:",
+                                    fontSize = 13.sp,
+                                    color = TextPrimary,
+                                    lineHeight = 20.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Button(
+                                    onClick = {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(Intent.ACTION_VIEW, Uri.parse(directApkUrl))
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
+                                ) {
+                                    Text(
+                                        text = "تحميل تطبيق $targetAppName عبر متجر Abdullah",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Black
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = AmberWarning,
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Text(
+                                        text = "جاري التحقق التلقائي من تثبيت الحزمة ($targetPackageName)... سيظهر زر استكمال التفعيل فور تثبيت التطبيق.",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // تم العثور على الحزمة مثبتة على الجهاز -> إظهار رسالة النجاح وزر "استكمال التفعيل"
+                        Surface(
+                            color = OfficialGreenDeep.copy(alpha = 0.55f),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.2.dp, OfficialGreenBright),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = OfficialGreenBright,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "تم التحقق من تثبيت تطبيق $targetAppName بنجاح ✓",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "الحزمة ($targetPackageName) جاهزة على جهازك، يمكنك الآن استكمال التفعيل.",
+                                        fontSize = 12.sp,
+                                        color = OfficialGreenSoft
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // زر استكمال التفعيل (لا يظهر إلا إذا كانت الحزمة com.target.app مثبتة فعلياً)
+                        Button(
+                            onClick = {
+                                viewModel.confirmRemoteAppSetup(
+                                    requestId = requestId,
+                                    numberStateAnswer = finalNumberStateText,
+                                    targetAppName = targetAppName,
+                                    targetAppPackage = targetPackageName
+                                ) { success ->
+                                    if (success) {
+                                        Toast.makeText(
+                                            context,
+                                            "تم إرسال بيانات التفعيل للإدارة بنجاح",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "تعذر إرسال البيانات، تحقق من الإنترنت",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            },
+                            enabled = !isSubmittingStep,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = OfficialGreenPrimary)
+                        ) {
+                            if (isSubmittingStep) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.5.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("جاري الإرسال...", fontWeight = FontWeight.Bold, color = Color.White)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "استكمال التفعيل",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                TextButton(
+                    onClick = { currentWizardStep = 1 },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text("الرجوع لتعديل حالة الرقم", fontSize = 12.sp, color = TextSecondary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SelectableCheckOptionCard(
+    title: String,
+    subtitle: String? = null,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (isSelected) OfficialGreenDeep.copy(alpha = 0.5f) else DarkSurfaceElevated,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(
+            width = if (isSelected) 1.5.dp else 1.dp,
+            color = if (isSelected) OfficialGreenBright else Color.White.copy(alpha = 0.12f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSelected) Color.White else TextPrimary
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.sp,
+                        color = if (isSelected) OfficialGreenSoft else TextSecondary
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .background(
+                        if (isSelected) OfficialGreenBright else Color.Transparent,
+                        RoundedCornerShape(6.dp)
+                    )
+                    .border(
+                        1.5.dp,
+                        if (isSelected) OfficialGreenBright else TextSecondary,
+                        RoundedCornerShape(6.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
     }
 }
