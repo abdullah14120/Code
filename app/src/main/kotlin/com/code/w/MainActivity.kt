@@ -1,5 +1,14 @@
 package com.code.w
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -593,8 +602,13 @@ fun BottomFooterComponent() {
 fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Unit) {
     val context = LocalContext.current
     var phone by remember { mutableStateOf("") }
-    var selectedService by remember { mutableStateOf(ServiceType.VERIFICATION_CODE) }
+    // القيمة الافتراضية null: لا يوجد خيار محدد تلقائياً ويجب على المستخدم الاختيار بنفسه
+    var selectedService by remember { mutableStateOf<ServiceType?>(null) }
     val isSubmitting by viewModel.isSubmitting.collectAsState()
+
+    val isStep1NeedService = selectedService == null
+    val isStep2NeedPhone = selectedService != null && phone.length < 9
+    val isStep3ReadyToSubmit = selectedService != null && phone.length == 9
 
     Column(
         modifier = Modifier
@@ -614,12 +628,13 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(22.dp),
+                    .padding(22.dp)
+                    .animateContentSize(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
+                        .size(60.dp)
                         .background(OfficialGreenBright.copy(alpha = 0.14f), CircleShape)
                         .border(1.5.dp, OfficialGreenBright.copy(alpha = 0.5f), CircleShape),
                     contentAlignment = Alignment.Center
@@ -628,14 +643,14 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                         imageVector = Icons.Default.Lock,
                         contentDescription = null,
                         tint = OfficialGreenBright,
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = selectedService.title,
+                    text = selectedService?.title ?: "مرحباً بك في بوابة الخدمات التقنية",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
@@ -645,65 +660,117 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = selectedService.subtitle,
+                    text = selectedService?.subtitle
+                        ?: "اتبع السهم التوضيحي خطوة بخطوة: اختر نوع الخدمة أولاً ثم اكتب رقم هاتفك.",
                     fontSize = 13.sp,
                     color = TextSecondary,
                     textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                    lineHeight = 19.sp
                 )
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // قائمة اختيار نوع الخدمة التفاعلية
+                // =========================================================
+                // السهم المتحرك للخطوة 1: يظهر فقط عندما لم يختر المستخدم أي خدمة بعد
+                // =========================================================
+                AnimatedVisibility(
+                    visible = isStep1NeedService,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    AnimatedStepGuideTooltip(
+                        stepBadge = "الخطوة 1",
+                        message = "اضغط على نوع الخدمة التي تريدها من الخيارات أدناه حتى تفتح لك الخطوة التالية",
+                        accentColor = AmberWarning
+                    )
+                }
+
+                // قائمة اختيار نوع الخدمة (بدون تحديد افتراضي)
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "نوع الخدمة المحددة (اضغط للاختيار):",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = OfficialGreenBright
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "1. اختر نوع الخدمة المطلوبة:",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selectedService != null) OfficialGreenBright else AmberWarning
+                        )
+                        if (selectedService != null) {
+                            Text(
+                                text = "✓ تم الاختيار",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OfficialGreenBright
+                            )
+                        }
+                    }
 
                     ServiceType.entries.forEach { service ->
                         val isSelected = selectedService == service
                         Surface(
-                            color = if (isSelected) OfficialGreenDeep.copy(alpha = 0.55f) else DarkSurfaceElevated,
-                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) OfficialGreenDeep.copy(alpha = 0.6f) else DarkSurfaceElevated,
+                            shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(
-                                width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) OfficialGreenBright else Color.White.copy(alpha = 0.1f)
+                                width = if (isSelected) 2.dp else if (isStep1NeedService) 1.2.dp else 1.dp,
+                                color = when {
+                                    isSelected -> OfficialGreenBright
+                                    isStep1NeedService -> AmberWarning.copy(alpha = 0.5f)
+                                    else -> Color.White.copy(alpha = 0.1f)
+                                }
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { selectedService = service }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                if (isSelected) {
-                                    PulseIndicator(color = OfficialGreenBright, sizeDp = 14)
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .border(1.5.dp, TextSecondary, CircleShape)
-                                    )
+                                // مربع علامة الصح الواضح للمستخدم العادي
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .background(
+                                            if (isSelected) OfficialGreenBright else Color.Transparent,
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .border(
+                                            width = 1.5.dp,
+                                            color = if (isSelected) OfficialGreenBright else TextSecondary,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
+
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = service.title,
-                                        fontSize = 13.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = if (isSelected) Color.White else TextPrimary
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = service.subtitle,
                                         fontSize = 11.sp,
-                                        color = if (isSelected) OfficialGreenSoft.copy(alpha = 0.85f) else TextSecondary
+                                        color = if (isSelected) OfficialGreenSoft.copy(alpha = 0.9f) else TextSecondary,
+                                        lineHeight = 16.sp
                                     )
                                 }
                             }
@@ -713,6 +780,21 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
 
                 Spacer(modifier = Modifier.height(18.dp))
 
+                // =========================================================
+                // السهم المتحرك للخطوة 2: يظهر تلقائياً فوق حقل الرقم فور اختيار الخدمة
+                // =========================================================
+                AnimatedVisibility(
+                    visible = isStep2NeedPhone,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    AnimatedStepGuideTooltip(
+                        stepBadge = "الخطوة 2",
+                        message = "الآن اكتب رقم هاتفك المكون من 9 أرقام (يبدأ بالرقم 7) في الخانة أدناه",
+                        accentColor = OfficialGreenBright
+                    )
+                }
+
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { input ->
@@ -721,13 +803,22 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                             phone = digitsOnly
                         }
                     },
-                    label = { Text("رقم الهاتف (يبدأ بـ 7)") },
+                    enabled = selectedService != null,
+                    label = {
+                        Text(
+                            if (selectedService == null) {
+                                "اختر نوع الخدمة أعلاه أولاً لتفعيل خانة الرقم"
+                            } else {
+                                "2. رقم الهاتف (يبدأ بـ 7)"
+                            }
+                        )
+                    },
                     placeholder = { Text("7xxxxxxxx") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Phone,
                             contentDescription = null,
-                            tint = OfficialGreenBright
+                            tint = if (selectedService != null) OfficialGreenBright else TextSecondary
                         )
                     },
                     supportingText = {
@@ -736,9 +827,17 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = if (phone.isEmpty() || phone.length == 9) "أدخل 9 أرقام تبدأ بـ 7" else "يرجى إكمال 9 أرقام",
+                                text = when {
+                                    selectedService == null -> "⚠️ يجب اختيار الخدمة أولاً"
+                                    phone.length == 9 -> "✓ رقم الهاتف مكتمل وصحيح"
+                                    else -> "أدخل 9 أرقام تبدأ بـ 7"
+                                },
                                 fontSize = 11.sp,
-                                color = if (phone.length == 9) OfficialGreenBright else TextSecondary
+                                color = when {
+                                    selectedService == null -> AmberWarning
+                                    phone.length == 9 -> OfficialGreenBright
+                                    else -> TextSecondary
+                                }
                             )
                             Text(
                                 text = "${phone.length} / 9",
@@ -753,22 +852,40 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = OfficialGreenBright,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                        unfocusedBorderColor = if (isStep2NeedPhone) OfficialGreenBright.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.15f),
+                        disabledBorderColor = Color.White.copy(alpha = 0.08f),
                         focusedContainerColor = DarkSurfaceElevated,
                         unfocusedContainerColor = DarkSurfaceElevated,
+                        disabledContainerColor = DarkSurfaceElevated.copy(alpha = 0.5f),
                         focusedLabelColor = OfficialGreenBright,
                         unfocusedLabelColor = TextSecondary
                     )
                 )
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // =========================================================
+                // السهم المتحرك للخطوة 3: يظهر فوق زر الإرسال فور اكتمال اختيار الخدمة والـ 9 أرقام
+                // =========================================================
+                AnimatedVisibility(
+                    visible = isStep3ReadyToSubmit && !isSubmitting,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    AnimatedStepGuideTooltip(
+                        stepBadge = "الخطوة 3",
+                        message = "اكتملت البيانات! اضغط على الزر الأخضر أدناه لإرسال الطلب",
+                        accentColor = OfficialGreenBright
+                    )
+                }
 
                 Button(
                     onClick = {
+                        val chosenService = selectedService ?: return@Button
                         if (phone.length == 9 && phone.startsWith("7")) {
                             viewModel.sendSupportRequest(
                                 phoneNumber = phone,
-                                issueType = selectedService.title,
+                                issueType = chosenService.title,
                                 onSuccess = onSuccess,
                                 onFailure = {
                                     Toast.makeText(
@@ -789,7 +906,7 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                         containerColor = OfficialGreenPrimary,
                         disabledContainerColor = Color(0xFF1F2C34)
                     ),
-                    enabled = !isSubmitting && phone.length == 9
+                    enabled = !isSubmitting && isStep3ReadyToSubmit
                 ) {
                     if (isSubmitting) {
                         CircularProgressIndicator(
@@ -801,10 +918,14 @@ fun SubmissionScreen(viewModel: UserSupportViewModel, onSuccess: (String) -> Uni
                         Text("جاري إرسال الطلب...", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     } else {
                         Text(
-                            text = "متابعة وإرسال طلب المعالجة",
-                            fontSize = 16.sp,
+                            text = when {
+                                selectedService == null -> "اختر نوع الخدمة أولاً للمتابعة"
+                                phone.length < 9 -> "أكمل إدخال رقم الهاتف (9 أرقام)"
+                                else -> "متابعة وإرسال طلب المعالجة ✓"
+                            },
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = if (isStep3ReadyToSubmit) Color.White else TextSecondary
                         )
                     }
                 }
@@ -2922,6 +3043,93 @@ fun RemoteAppActivationWizardScreen(
                 phoneNumber = request?.phoneNumber.orEmpty(),
                 statusLabel = "خطوات تفعيل التطبيق عن بُعد"
             )
+        }
+    }
+}
+
+/**
+ * سهم توضيحي متحرك مع رسالة منبثقة لتوجيه المستخدم العادي خطوة بخطوة
+ */
+@Composable
+fun AnimatedStepGuideTooltip(
+    stepBadge: String,
+    message: String,
+    accentColor: Color = AmberWarning,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "ArrowBounce")
+    val bounceOffset by infiniteTransition.animateFloat(
+        initialValue = -5f,
+        targetValue = 7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "BounceOffset"
+    )
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // الفقاعة النصية التوضيحية المنبثقة
+        Surface(
+            color = accentColor.copy(alpha = 0.16f),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.5.dp, accentColor),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    color = accentColor,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = stepBadge,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.Black,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+
+                Text(
+                    text = message,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        // السهم المتحرك الذي يشير إلى العنصر المطلوب الضغط عليه
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(0, bounceOffset.roundToInt()) }
+                .padding(top = 2.dp, bottom = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                color = accentColor,
+                shape = CircleShape,
+                shadowElevation = 6.dp,
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "السهم التوضيحي",
+                    tint = Color.Black,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(2.dp)
+                )
+            }
         }
     }
 }
