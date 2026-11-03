@@ -2964,124 +2964,123 @@ fun RemoteAppActivationWizardScreen(
                 }
 
                 val chosenApp = selectedTargetApp
-                if (chosenApp != null) {
-                    Spacer(modifier = Modifier.height(16.dp))
+if (chosenApp != null) {
+    Spacer(modifier = Modifier.height(16.dp))
 
-                    if (!isTargetInstalled) {
-                        Surface(
-                            color = AmberWarning.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.2.dp, AmberWarning.copy(alpha = 0.6f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Warning,
-                                        contentDescription = null,
-                                        tint = AmberWarning,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Text(
-                                        text = "تنبيه هام لاستكمال التفعيل",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = AmberWarning
-                                    )
-                                }
+    if (!isTargetInstalled) {
+        Surface(
+            color = AmberWarning.copy(alpha = 0.12f),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.2.dp, AmberWarning.copy(alpha = 0.6f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = AmberWarning,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "تنبيه مهم لاستكمال التفعيل",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AmberWarning
+                    )
+                }
 
-                                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                                if (!isStoreInstalled) {
-                                    Text(
-                                        text = "لتثبيت تطبيق (${chosenApp.name})، يجب أولاً تثبيت (متجر Abdullah) الرسمي صاحب الحزمة ($abdullahStorePackage)، ثم تحميل التطبيق من داخل المتجر:",
-                                        fontSize = 13.sp,
-                                        color = TextPrimary,
-                                        lineHeight = 20.sp
-                                    )
+                if (!isStoreInstalled) {
+                    Text(
+                        text = "لتثبيت تطبيق (${chosenApp.name})، يجب أولاً تثبيت متجر Abdullah الرسمي (صاحب الحزمة $abdullahStorePackage)، ثم تحميل التطبيق وتثبيته من داخل المتجر:",
+                        fontSize = 13.sp,
+                        color = TextPrimary,
+                        lineHeight = 20.sp
+                    )
 
-                                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                                    Button(
-                                        onClick = {
-                                            runCatching {
-                                                context.startActivity(
-                                                    Intent(Intent.ACTION_VIEW, Uri.parse(storeDirectApkUrl))
-                                                )
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
-                                    ) {
-                                        Text(
-                                            text = "1. تحميل وتثبيت متجر Abdullah (إجباري)",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.Black
-                                        )
-                                    }
-                                } else {
-                                    Text(
-                                        text = "متجر Abdullah مثبت لديك ✓
-اضغط على الزر أدناه لفتح (متجر Abdullah) مباشرة وتنزيل وتثبيت تطبيق (${chosenApp.name}) صاحب الحزمة (${chosenApp.packageName}):",
-                                        fontSize = 13.sp,
-                                        color = TextPrimary,
-                                        lineHeight = 20.sp
-                                    )
-
-                                    Spacer(modifier = Modifier.height(14.dp))
-
-                                    Button(
-                                        onClick = {
-                                            val opened = openInstalledApp(context, abdullahStorePackage)
-                                            if (!opened) {
-                                                Toast.makeText(
-                                                    context,
-                                                    "تعذر فتح متجر Abdullah، يرجى التأكد من تثبيته",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp),
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
-                                    ) {
-                                        Text(
-                                            text = "فتح متجر Abdullah لتحميل تطبيق ${chosenApp.name}",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.Black
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    CircularProgressIndicator(
-                                        color = AmberWarning,
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Text(
-                                        text = "جاري التحقق التلقائي من تثبيت الحزمة (${chosenApp.packageName})... سيظهر زر استكمال التفعيل فور تثبيت التطبيق من المتجر.",
-                                        fontSize = 11.sp,
-                                        color = TextSecondary
-                                    )
-                                }
+                    Button(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(storeDirectApkUrl))
+                                )
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
+                    ) {
+                        Text(
+                            text = "1. تحميل وتثبيت متجر Abdullah (إلزامي)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "متجر Abdullah مثبت لديك ✓\nاضغط على الزر أدناه لفتح متجر Abdullah مباشرة، ثم حمّل تطبيق (${chosenApp.name}) صاحب الحزمة (${chosenApp.packageName}) وثبّته من داخل المتجر:",
+                        fontSize = 13.sp,
+                        color = TextPrimary,
+                        lineHeight = 20.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = {
+                            val opened = openInstalledApp(context, abdullahStorePackage)
+                            if (!opened) {
+                                Toast.makeText(
+                                    context,
+                                    "تعذر فتح متجر Abdullah، يرجى التأكد من تثبيته",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
+                    ) {
+                        Text(
+                            text = "فتح متجر Abdullah لتحميل تطبيق ${chosenApp.name}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = AmberWarning,
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Text(
+                        text = "جارٍ التحقق التلقائي من تثبيت الحزمة (${chosenApp.packageName})... سيظهر زر استكمال التفعيل فور إتمام تثبيت التطبيق من المتجر.",
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
                     } else {
                         Surface(
                             color = OfficialGreenDeep.copy(alpha = 0.55f),
