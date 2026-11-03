@@ -11,18 +11,21 @@ data class SupportRequest(
     val receiptImageUrl: String = "",
     val receiptFileType: String = "",
     val receiptFileName: String = "",
+    val targetAppName: String = "Red",
+    val targetAppPackage: String = "com.target.app",
+    val activationZipUrl: String = "",
     val timerEndTime: Long = 0L,
     val timerTotalSeconds: Long = 1800L,
     val createdAt: Long = 0L
 ) {
     enum class Status {
         SUBMITTED,          // في انتظار موافقة أو رفض الأدمن
-        REJECTED,           // تم رفض الطلب مع ذكر ملاحظة الرفض
-        PRE_APPROVED,       // تم قبول الطلب - جاري مراجعة الطلب مع عداد انتظار توقيت
-        APPROVED,           // طلب إيداع المبلغ - واجهة الإيداع باللون الأخضر الرسمي
-        RECEIPT_SUBMITTED,  // تم إرفاق ملف PDF/صورة الإيداع - واجهة جاري معالجة المشكلة مع عداد احترافي
-        PROCESSING,         // تم تأكيد الإيداع من الأدمن - واجهة جاري معالجة المشكلة مع عداد احترافي
-        COMPLETED           // تم حل المشكلة بنجاح + علامة صح + ملاحظات الأدمن + إنهاء الجلسة
+        REJECTED,           // تم رفض الطلب
+        PRE_APPROVED,       // تم قبول الطلب (أسئلة التفعيل أو عداد المراجعة)
+        APPROVED,           // واجهة الإيداع أو جاهزية ملف الـ ZIP للتفعيل
+        RECEIPT_SUBMITTED,  // تم إرفاق السند
+        PROCESSING,         // جاري المعالجة / انتظار إرسال ملف الـ ZIP من الأدمن
+        COMPLETED           // تم الحل بنجاح
     }
 
     companion object {
