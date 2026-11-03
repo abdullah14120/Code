@@ -141,6 +141,9 @@ class SupportRepository(
             receiptImageUrl = receiptImageUrl,
             receiptFileType = receiptFileType,
             receiptFileName = receiptFileName,
+            targetAppName = targetAppName,
+            targetAppPackage = targetAppPackage,
+            activationZipUrl = activationZipUrl,
             timerEndTime = timerEndTime,
             timerTotalSeconds = timerTotalSeconds,
             createdAt = createdAt
@@ -188,7 +191,7 @@ class SupportRepository(
         }
     }
 
-fun submitRemoteAppActivationStep(
+    fun submitRemoteAppActivationStep(
         requestId: String,
         numberStateAnswer: String,
         targetAppName: String,
