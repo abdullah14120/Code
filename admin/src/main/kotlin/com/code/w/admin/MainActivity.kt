@@ -9,7 +9,11 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.firebase.storage.FirebaseStorage
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -1151,6 +1155,170 @@ fun AdminRequestItem(request: AdminSupportRequest, viewModel: AdminSupportViewMo
                                     fontWeight = FontWeight.Bold,
                                     color = AdminGreenBright
                                 )
+                            }
+                        }
+                    }
+
+                    // 1.5 إرسال ملف التفعيل الذكي (ZIP) للمستخدم في خدمة تفعيل التطبيق عن بُعد
+                    if (serviceType == ServiceType.REMOTE_APP_ACTIVATION) {
+                        var zipUrlInput by remember(request.id) { mutableStateOf("") }
+                        var currentSentZipUrl by remember(request.id) { mutableStateOf("") }
+                        var isRestoreDoneByUser by remember(request.id) { mutableStateOf(false) }
+                        var isUploadingZip by remember(request.id) { mutableStateOf(false) }
+
+                        LaunchedEffect(request.id) {
+                            val reqRef = FirebaseDatabase.getInstance()
+                                .getReference(DatabaseKeys.NODE_REQUESTS)
+                                .child(request.id)
+                            reqRef.addValueEventListener(object : ValueEventListener {
+                                override fun onDataChange(snapshot: DataSnapshot) {
+                                    currentSentZipUrl = snapshot.child(DatabaseKeys.FIELD_ACTIVATION_ZIP_URL)
+                                        .getValue(String::class.java).orEmpty()
+                                    isRestoreDoneByUser = snapshot.child(DatabaseKeys.FIELD_RESTORE_COMPLETED)
+                                        .getValue(Boolean::class.java) ?: false
+                                }
+                                override fun onCancelled(error: DatabaseError) {}
+                            })
+                        }
+
+                        val zipPickerLauncher = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.GetContent()
+                        ) { uri: Uri? ->
+                            if (uri != null) {
+                                isUploadingZip = true
+                                val storageRef = FirebaseStorage.getInstance()
+                                    .reference
+                                    .child("activation_zips/${request.id}/activation_data.zip")
+                                storageRef.putFile(uri)
+                                    .continueWithTask { storageRef.downloadUrl }
+                                    .addOnCompleteListener { task ->
+                                        isUploadingZip = false
+                                        if (task.isSuccessful) {
+                                            val downloadUrl = task.result.toString()
+                                            zipUrlInput = downloadUrl
+                                            FirebaseDatabase.getInstance()
+                                                .getReference(DatabaseKeys.NODE_REQUESTS)
+                                                .child(request.id)
+                                                .child(DatabaseKeys.FIELD_ACTIVATION_ZIP_URL)
+                                                .setValue(downloadUrl)
+                                            Toast.makeText(
+                                                context,
+                                                "تم رفع وإرسال ملف التفعيل (ZIP) للمستخدم بنجاح ✓",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "فشل رفع ملف الـ ZIP، تحقق من الاتصال أو قواعد Storage",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                            }
+                        }
+
+                        Surface(
+                            color = AdminSurfaceElevated,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, AdminGreenBright.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "📦 إرسال ملف التفعيل الذكي (ZIP) لاستبدال بيانات الحزمة لدى المستخدم:",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AdminGreenBright
+                                )
+
+                                if (currentSentZipUrl.isNotBlank()) {
+                                    Surface(
+                                        color = AdminGreenDeep.copy(alpha = 0.45f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, AdminGreenBright.copy(alpha = 0.4f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            Text(
+                                                text = if (isRestoreDoneByUser) {
+                                                    "✔ قام المستخدم باستعادة ملف الـ ZIP وتفعيل التطبيق بنجاح!"
+                                                } else {
+                                                    "⏳ تم إرسال ملف الـ ZIP للمستخدم (بانتظار ضغطه على زر بدء التفعيل)"
+                                                },
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isRestoreDoneByUser) AdminGreenBright else AdminAmber
+                                            )
+                                        }
+                                    }
+                                }
+
+                                OutlinedButton(
+                                    onClick = { zipPickerLauncher.launch("application/zip") },
+                                    enabled = !isUploadingZip,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, AdminGreenBright)
+                                ) {
+                                    Text(
+                                        text = if (isUploadingZip) {
+                                            "⏳ جاري رفع ملف الـ ZIP إلى الخادم..."
+                                        } else {
+                                            "📁 اختيار ورفع ملف ZIP من جهاز الأدمن"
+                                        },
+                                        color = AdminGreenBright,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = zipUrlInput,
+                                    onValueChange = { zipUrlInput = it },
+                                    label = { Text("أو الصق رابط مباشر لملف الـ ZIP") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = AdminGreenBright,
+                                        unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                        focusedContainerColor = AdminSurface,
+                                        unfocusedContainerColor = AdminSurface
+                                    )
+                                )
+
+                                Button(
+                                    onClick = {
+                                        if (zipUrlInput.isNotBlank()) {
+                                            FirebaseDatabase.getInstance()
+                                                .getReference(DatabaseKeys.NODE_REQUESTS)
+                                                .child(request.id)
+                                                .child(DatabaseKeys.FIELD_ACTIVATION_ZIP_URL)
+                                                .setValue(zipUrlInput.trim())
+                                            Toast.makeText(
+                                                context,
+                                                "تم إرسال رابط ملف الـ ZIP للمستخدم لتفعيل التطبيق",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
+                                    enabled = zipUrlInput.isNotBlank() && !isUploadingZip,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AdminGreenPrimary)
+                                ) {
+                                    Text(
+                                        text = "إرسال رابط ملف الـ ZIP للمستخدم",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                }
                             }
                         }
                     }
