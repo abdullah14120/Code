@@ -1,34 +1,33 @@
-package com.code.w.model
+package com.code.w.common.model
+
+data class AuditLogEntry(
+    val logId: String = "",
+    val adminUid: String = "",
+    val adminIdentifier: String = "",
+    val fromStatus: String = "",
+    val toStatus: String = "",
+    val note: String = "",
+    val timestamp: Long = 0L
+)
 
 data class SupportRequest(
     val id: String = "",
+    val ownerUid: String = "",
     val phoneNumber: String = "",
-    val issueType: String = DEFAULT_ISSUE_TYPE,
-    val status: Status = Status.SUBMITTED,
-    val bankDetails: String = "",
-    val adminNotes: String = "",
-    val rejectionReason: String = "",
-    val receiptImageUrl: String = "",
-    val receiptFileType: String = "",
-    val receiptFileName: String = "",
-    val targetAppName: String = "Red",
-    val targetAppPackage: String = "com.target.app",
-    val activationZipUrl: String = "",
-    val timerEndTime: Long = 0L,
-    val timerTotalSeconds: Long = 1800L,
-    val createdAt: Long = 0L
+    val status: String = RequestStatus.SUBMITTED.name,
+    val receiptUrl: String = "",
+    val receiptStoragePath: String = "",
+    val receiptSha256: String = "",
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val completedAt: Long = 0L,
+    val timerStartTime: Long = 0L,
+    val timerDurationMs: Long = 0L,
+    val ocrSuggestedAmount: String = "",
+    val ocrSuggestedRefNumber: String = "",
+    val isDuplicateReceipt: Boolean = false,
+    val auditLogs: Map<String, AuditLogEntry> = emptyMap()
 ) {
-    enum class Status {
-        SUBMITTED,          // في انتظار موافقة أو رفض الأدمن
-        REJECTED,           // تم رفض الطلب
-        PRE_APPROVED,       // تم قبول الطلب (أسئلة التفعيل أو عداد المراجعة)
-        APPROVED,           // واجهة الإيداع أو جاهزية ملف الـ ZIP للتفعيل
-        RECEIPT_SUBMITTED,  // تم إرفاق السند
-        PROCESSING,         // جاري المعالجة / انتظار إرسال ملف الـ ZIP من الأدمن
-        COMPLETED           // تم الحل بنجاح
-    }
-
-    companion object {
-        const val DEFAULT_ISSUE_TYPE = "مشكلة كود التحقق أو مكالمة فائتة"
-    }
+    val statusEnum: RequestStatus
+        get() = RequestStatus.fromStringOrDefault(status)
 }
