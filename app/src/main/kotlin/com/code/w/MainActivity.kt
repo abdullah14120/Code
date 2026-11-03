@@ -111,7 +111,11 @@ import com.code.w.common.model.DatabaseKeys
 import com.code.w.common.model.ServiceType
 import com.code.w.model.SupportRequest
 import com.code.w.ui.LiveChatSupportButton
+import androidx.compose.runtime.rememberCoroutineScope
+import com.code.w.util.PrepareZipResult
 import com.code.w.util.ProcessedReceipt
+import com.code.w.util.SmartDataRestoreManager
+import kotlinx.coroutines.launch
 import com.code.w.viewmodel.UserSupportViewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -1094,15 +1098,22 @@ fun TrackingScreen(
                 }
 
                 SupportRequest.Status.APPROVED -> {
-                    OfficialDepositScreen(
-                        requestId = requestId,
-                        request = requestState,
-                        viewModel = viewModel,
-                        attachedReceipt = attachedReceipt,
-                        isSharedFromExternal = isSharedFromExternal,
-                        isProcessingFile = isProcessingFile,
-                        isUploading = isUploading
-                    )
+                    val isRemoteActivationService =
+                        requestState?.issueType == ServiceType.REMOTE_APP_ACTIVATION.title
+
+                    if (isRemoteActivationService && !requestState?.activationZipUrl.isNullOrBlank()) {
+                        RemoteZipRestoreScreen(request = requestState)
+                    } else {
+                        OfficialDepositScreen(
+                            requestId = requestId,
+                            request = requestState,
+                            viewModel = viewModel,
+                            attachedReceipt = attachedReceipt,
+                            isSharedFromExternal = isSharedFromExternal,
+                            isProcessingFile = isProcessingFile,
+                            isUploading = isUploading
+                        )
+                    }
                 }
 
                 SupportRequest.Status.RECEIPT_SUBMITTED -> {
@@ -1112,9 +1123,16 @@ fun TrackingScreen(
                 }
 
                 SupportRequest.Status.PROCESSING -> {
-                    ProcessingProblemScreen(
-                        request = requestState
-                    )
+                    val isRemoteActivationService =
+                        requestState?.issueType == ServiceType.REMOTE_APP_ACTIVATION.title
+
+                    if (isRemoteActivationService && !requestState?.activationZipUrl.isNullOrBlank()) {
+                        RemoteZipRestoreScreen(request = requestState)
+                    } else {
+                        ProcessingProblemScreen(
+                            request = requestState
+                        )
+                    }
                 }
 
                 SupportRequest.Status.COMPLETED -> {
@@ -2650,6 +2668,27 @@ private fun isAppPackageInstalled(context: Context, packageName: String): Boolea
     }
 }
 
+data class TargetAppOption(
+    val name: String,
+    val packageName: String,
+    val iconDrawableName: String
+)
+
+private fun openInstalledApp(context: Context, packageName: String): Boolean {
+    return try {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(launchIntent)
+            true
+        } else {
+            false
+        }
+    } catch (_: Exception) {
+        false
+    }
+}
+
 @Composable
 fun RemoteAppActivationWizardScreen(
     requestId: String,
@@ -2659,31 +2698,43 @@ fun RemoteAppActivationWizardScreen(
 ) {
     val context = LocalContext.current
 
-    // المرحلة الداخلية: 1 = سؤال هل الرقم مفعل؟ | 2 = اختيار التطبيق والتحقق من تثبيته
+    // قائمة الـ 3 تطبيقات المستهدفة مع أسماء أيقوناتها بصيغة PNG في مجلد drawable
+    val targetApps = remember {
+        listOf(
+            TargetAppOption(name = "Red", packageName = "com.target.app", iconDrawableName = "ic_app_red"),
+            TargetAppOption(name = "Blue", packageName = "com.target.blue", iconDrawableName = "ic_app_blue"),
+            TargetAppOption(name = "Gold", packageName = "com.target.gold", iconDrawableName = "ic_app_gold")
+        )
+    }
+
+    val abdullahStorePackage = DatabaseKeys.ABDULLAH_STORE_PACKAGE // com.fix.engine.abdullah
+    val storeDirectApkUrl = remember {
+        FirebaseRemoteConfig.getInstance()
+            .getString(DatabaseKeys.RC_ABDULLAH_STORE_APK_URL)
+            .ifBlank { "https://abdullahtamemi.blogspot.com" }
+    }
+
+    // المرحلة الداخلية: 1 = سؤال هل الرقم مفعل؟ | 2 = اختيار التطبيق والتحقق من تثبيته عبر متجر Abdullah
     var currentWizardStep by remember { mutableStateOf(1) }
 
     // متغيرات الخطوة 1 (حالة الرقم)
     var mainActivationChoice by remember { mutableStateOf("") }
     var subAppChoice by remember { mutableStateOf("") }
 
-    // متغيرات الخطوة 2 (اختيار التطبيق وفحص الحزمة)
-    val targetAppName = "Red"
-    val targetPackageName = "com.target.app"
-    var isTargetAppSelected by remember { mutableStateOf(false) }
-    var isTargetInstalled by remember {
-        mutableStateOf(isAppPackageInstalled(context, targetPackageName))
+    // متغيرات الخطوة 2 (اختيار أحد التطبيقات الثلاثة وفحص متجر Abdullah والحزمة المختارة)
+    var selectedTargetApp by remember { mutableStateOf<TargetAppOption?>(null) }
+    var isStoreInstalled by remember {
+        mutableStateOf(isAppPackageInstalled(context, abdullahStorePackage))
     }
+    var isTargetInstalled by remember { mutableStateOf(false) }
 
-    val directApkUrl = remember {
-        FirebaseRemoteConfig.getInstance()
-            .getString(DatabaseKeys.RC_ABDULLAH_STORE_APK_URL)
-            .ifBlank { "https://abdullahtamemi.blogspot.com" }
-    }
-
-    LaunchedEffect(currentWizardStep, isTargetAppSelected) {
-        if (currentWizardStep == 2 && isTargetAppSelected) {
+    LaunchedEffect(currentWizardStep, selectedTargetApp) {
+        if (currentWizardStep == 2) {
             while (true) {
-                isTargetInstalled = isAppPackageInstalled(context, targetPackageName)
+                isStoreInstalled = isAppPackageInstalled(context, abdullahStorePackage)
+                selectedTargetApp?.let { target ->
+                    isTargetInstalled = isAppPackageInstalled(context, target.packageName)
+                }
                 delay(1500L)
             }
         }
@@ -2757,10 +2808,23 @@ fun RemoteAppActivationWizardScreen(
                     color = TextSecondary
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                AnimatedVisibility(
+                    visible = mainActivationChoice.isEmpty(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    AnimatedStepGuideTooltip(
+                        stepBadge = "الخطوة 1",
+                        message = "اضغط على أحد الخيارين أدناه لتوضيح ما إذا كان الرقم يعمل حالياً أم متوقفاً",
+                        accentColor = AmberWarning
+                    )
+                }
 
                 SelectableCheckOptionCard(
                     title = "مفعل ويعمل حاليا",
+                    subtitle = "اختر هذا الخيار إذا كان الرقم مفتوحاً لديك الآن ويرسل ويستقبل الرسائل",
                     isSelected = mainActivationChoice == "ACTIVE",
                     onClick = { mainActivationChoice = "ACTIVE" }
                 )
@@ -2769,9 +2833,21 @@ fun RemoteAppActivationWizardScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 18.dp, top = 10.dp, bottom = 6.dp),
+                            .padding(start = 14.dp, top = 10.dp, bottom = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        AnimatedVisibility(
+                            visible = subAppChoice.isEmpty(),
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            AnimatedStepGuideTooltip(
+                                stepBadge = "تحديد النسخة",
+                                message = "اختر التطبيق المفعل فيه الرقم حالياً (تطبيق ١ أو تطبيق ٢)",
+                                accentColor = OfficialGreenBright
+                            )
+                        }
+
                         Text(
                             text = "حدد التطبيق المفعل فيه الرقم حالياً:",
                             fontSize = 12.sp,
@@ -2781,12 +2857,14 @@ fun RemoteAppActivationWizardScreen(
 
                         SelectableCheckOptionCard(
                             title = "مفعل في تطبيق ١",
+                            iconDrawableName = "ic_source_app_1",
                             isSelected = subAppChoice == "مفعل في تطبيق ١",
                             onClick = { subAppChoice = "مفعل في تطبيق ١" }
                         )
 
                         SelectableCheckOptionCard(
                             title = "مفعل في تطبيق ٢",
+                            iconDrawableName = "ic_source_app_2",
                             isSelected = subAppChoice == "مفعل في تطبيق ٢",
                             onClick = { subAppChoice = "مفعل في تطبيق ٢" }
                         )
@@ -2797,6 +2875,7 @@ fun RemoteAppActivationWizardScreen(
 
                 SelectableCheckOptionCard(
                     title = "غير مفعل",
+                    subtitle = "اختر هذا الخيار إذا كان الرقم متوقفاً أو يطلب منك إدخال الكود الآن",
                     isSelected = mainActivationChoice == "INACTIVE",
                     onClick = {
                         mainActivationChoice = "INACTIVE"
@@ -2804,7 +2883,19 @@ fun RemoteAppActivationWizardScreen(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(22.dp))
+                Spacer(modifier = Modifier.height(18.dp))
+
+                AnimatedVisibility(
+                    visible = isStep1Valid,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    AnimatedStepGuideTooltip(
+                        stepBadge = "متابعة",
+                        message = "ممتاز! اضغط الآن على زر (استكمال) بالأسفل للانتقال لاختيار التطبيق",
+                        accentColor = OfficialGreenBright
+                    )
+                }
 
                 Button(
                     onClick = { currentWizardStep = 2 },
@@ -2836,31 +2927,51 @@ fun RemoteAppActivationWizardScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "اختر التطبيق الذي ترغب بتفعيل رقمك عليه:",
+                    text = "اختر أحد التطبيقات الثلاثة المعتمدة لتفعيل رقمك عليه:",
                     fontSize = 13.sp,
                     color = TextSecondary
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                SelectableCheckOptionCard(
-                    title = "تطبيق $targetAppName",
-                    subtitle = "اسم الحزمة: $targetPackageName",
-                    isSelected = isTargetAppSelected,
-                    onClick = {
-                        isTargetAppSelected = true
-                        isTargetInstalled = isAppPackageInstalled(context, targetPackageName)
+                AnimatedVisibility(
+                    visible = selectedTargetApp == null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    AnimatedStepGuideTooltip(
+                        stepBadge = "الخطوة 2",
+                        message = "اضغط على أحد التطبيقات الثلاثة أدناه لفحص تثبيته واستكمال التفعيل",
+                        accentColor = AmberWarning
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    targetApps.forEach { appOption ->
+                        val isChosen = selectedTargetApp?.packageName == appOption.packageName
+                        SelectableCheckOptionCard(
+                            title = "تطبيق ${appOption.name}",
+                            subtitle = "اسم الحزمة: ${appOption.packageName}",
+                            iconDrawableName = appOption.iconDrawableName,
+                            isSelected = isChosen,
+                            onClick = {
+                                selectedTargetApp = appOption
+                                isStoreInstalled = isAppPackageInstalled(context, abdullahStorePackage)
+                                isTargetInstalled = isAppPackageInstalled(context, appOption.packageName)
+                            }
+                        )
                     }
-                )
+                }
 
-                if (isTargetAppSelected) {
+                val chosenApp = selectedTargetApp
+                if (chosenApp != null) {
                     Spacer(modifier = Modifier.height(16.dp))
 
                     if (!isTargetInstalled) {
                         Surface(
                             color = AmberWarning.copy(alpha = 0.12f),
                             shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.5f)),
+                            border = BorderStroke(1.2.dp, AmberWarning.copy(alpha = 0.6f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -2884,35 +2995,72 @@ fun RemoteAppActivationWizardScreen(
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
-                                Text(
-                                    text = "يجب عليك تنزيل وتثبيت تطبيق ($targetAppName) صاحب الحزمة ($targetPackageName) على جهازك حتى يتم استكمال التفعيل.\nيتم تحميل التطبيق عبر (متجر Abdullah) التابع لنا من الزر أدناه:",
-                                    fontSize = 13.sp,
-                                    color = TextPrimary,
-                                    lineHeight = 20.sp
-                                )
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                Button(
-                                    onClick = {
-                                        runCatching {
-                                            context.startActivity(
-                                                Intent(Intent.ACTION_VIEW, Uri.parse(directApkUrl))
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(48.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
-                                ) {
+                                if (!isStoreInstalled) {
                                     Text(
-                                        text = "تحميل تطبيق $targetAppName عبر متجر Abdullah",
+                                        text = "لتثبيت تطبيق (${chosenApp.name})، يجب أولاً تثبيت (متجر Abdullah) الرسمي صاحب الحزمة ($abdullahStorePackage)، ثم تحميل التطبيق من داخل المتجر:",
                                         fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Black
+                                        color = TextPrimary,
+                                        lineHeight = 20.sp
                                     )
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Button(
+                                        onClick = {
+                                            runCatching {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(storeDirectApkUrl))
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
+                                    ) {
+                                        Text(
+                                            text = "1. تحميل وتثبيت متجر Abdullah (إجباري)",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.Black
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        text = "متجر Abdullah مثبت لديك ✓
+اضغط على الزر أدناه لفتح (متجر Abdullah) مباشرة وتنزيل وتثبيت تطبيق (${chosenApp.name}) صاحب الحزمة (${chosenApp.packageName}):",
+                                        fontSize = 13.sp,
+                                        color = TextPrimary,
+                                        lineHeight = 20.sp
+                                    )
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+
+                                    Button(
+                                        onClick = {
+                                            val opened = openInstalledApp(context, abdullahStorePackage)
+                                            if (!opened) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "تعذر فتح متجر Abdullah، يرجى التأكد من تثبيته",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarning)
+                                    ) {
+                                        Text(
+                                            text = "فتح متجر Abdullah لتحميل تطبيق ${chosenApp.name}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.Black
+                                        )
+                                    }
                                 }
 
                                 Spacer(modifier = Modifier.height(10.dp))
@@ -2927,7 +3075,7 @@ fun RemoteAppActivationWizardScreen(
                                         strokeWidth = 2.dp
                                     )
                                     Text(
-                                        text = "جاري التحقق التلقائي من تثبيت الحزمة ($targetPackageName)... سيظهر زر استكمال التفعيل فور تثبيت التطبيق.",
+                                        text = "جاري التحقق التلقائي من تثبيت الحزمة (${chosenApp.packageName})... سيظهر زر استكمال التفعيل فور تثبيت التطبيق من المتجر.",
                                         fontSize = 11.sp,
                                         color = TextSecondary
                                     )
@@ -2954,13 +3102,13 @@ fun RemoteAppActivationWizardScreen(
                                 )
                                 Column {
                                     Text(
-                                        text = "تم التحقق من تثبيت تطبيق $targetAppName بنجاح ✓",
+                                        text = "تم التحقق من تثبيت تطبيق ${chosenApp.name} بنجاح ✓",
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
                                     )
                                     Text(
-                                        text = "الحزمة ($targetPackageName) جاهزة على جهازك، يمكنك الآن استكمال التفعيل.",
+                                        text = "الحزمة (${chosenApp.packageName}) جاهزة على جهازك، يمكنك الآن استكمال التفعيل.",
                                         fontSize = 12.sp,
                                         color = OfficialGreenSoft
                                     )
@@ -2968,15 +3116,21 @@ fun RemoteAppActivationWizardScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(18.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        AnimatedStepGuideTooltip(
+                            stepBadge = "الخطوة الأخيرة",
+                            message = "اضغط على زر (استكمال التفعيل) أدناه لإرسال البيانات واستلام ملف التفعيل الذكي",
+                            accentColor = OfficialGreenBright
+                        )
 
                         Button(
                             onClick = {
                                 viewModel.confirmRemoteAppSetup(
                                     requestId = requestId,
                                     numberStateAnswer = finalNumberStateText,
-                                    targetAppName = targetAppName,
-                                    targetAppPackage = targetPackageName
+                                    targetAppName = chosenApp.name,
+                                    targetAppPackage = chosenApp.packageName
                                 ) { success ->
                                     if (success) {
                                         Toast.makeText(
@@ -3042,6 +3196,281 @@ fun RemoteAppActivationWizardScreen(
                 requestId = requestId,
                 phoneNumber = request?.phoneNumber.orEmpty(),
                 statusLabel = "خطوات تفعيل التطبيق عن بُعد"
+            )
+        }
+    }
+}
+
+/**
+ * شاشة استعادة بيانات التفعيل الذكي (ZIP) بدون روت مع الاحتفاظ الدائم بزر إعادة المحاولة
+ */
+@Composable
+fun RemoteZipRestoreScreen(request: SupportRequest?) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val targetAppName = request?.targetAppName?.ifBlank { "Red" } ?: "Red"
+    val targetPackage = request?.targetAppPackage?.ifBlank { "com.target.app" } ?: "com.target.app"
+    val zipUrl = request?.activationZipUrl.orEmpty()
+
+    var isRestoring by remember { mutableStateOf(false) }
+    var progressText by remember { mutableStateOf("") }
+    var restoreSuccessMessage by remember { mutableStateOf<String?>(null) }
+    var restoreErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { activityResult ->
+        isRestoring = false
+        if (activityResult.resultCode == android.app.Activity.RESULT_OK) {
+            val msg = activityResult.data?.getStringExtra("restore_message")
+                ?: "تم استبدال بيانات الحزمة ($targetPackage) وتفعيل التطبيق بنجاح تام!"
+            restoreSuccessMessage = msg
+            restoreErrorMessage = null
+
+            request?.id?.takeIf { it.isNotBlank() }?.let { reqId ->
+                FirebaseDatabase.getInstance()
+                    .getReference(DatabaseKeys.NODE_REQUESTS)
+                    .child(reqId)
+                    .child(DatabaseKeys.FIELD_RESTORE_COMPLETED)
+                    .setValue(true)
+            }
+        } else {
+            val err = activityResult.data?.getStringExtra("restore_error")
+                ?: "تعذر إتمام استبدال البيانات داخل الحزمة ($targetPackage). يرجى المحاولة مرة أخرى."
+            restoreErrorMessage = err
+        }
+    }
+
+    fun triggerSmartRestoreWithoutRoot() {
+        if (isRestoring) return
+        scope.launch {
+            isRestoring = true
+            restoreErrorMessage = null
+            val prepResult = SmartDataRestoreManager.downloadAndPrepareRestoreIntent(
+                context = context,
+                zipUrl = zipUrl,
+                targetPackage = targetPackage,
+                onProgressStep = { step -> progressText = step }
+            )
+            when (prepResult) {
+                is PrepareZipResult.Ready -> {
+                    runCatching {
+                        restoreLauncher.launch(prepResult.launchIntent)
+                    }.onFailure { e ->
+                        isRestoring = false
+                        restoreErrorMessage = "تعذر تشغيل أداة الاستعادة في ($targetAppName): ${e.localizedMessage}"
+                    }
+                }
+                is PrepareZipResult.Error -> {
+                    isRestoring = false
+                    restoreErrorMessage = prepResult.errorMessage
+                }
+            }
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(OfficialGreenBorder, RoundedCornerShape(22.dp)),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(22.dp)
+                .animateContentSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Surface(
+                color = OfficialGreenDeep.copy(alpha = 0.65f),
+                shape = RoundedCornerShape(50),
+                border = BorderStroke(1.dp, OfficialGreenBright)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = OfficialGreenBright,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "ملف التفعيل الذكي جاهز من الإدارة ✓",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "تفعيل تطبيق ($targetAppName) واستعادة البيانات",
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "اضغط على زر التفعيل أدناه ليقوم التطبيق تلقائياً بتحميل حزمة البيانات وحقنها مباشرة داخل ($targetPackage) بدون الحاجة لروت.",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                textAlign = TextAlign.Center,
+                lineHeight = 19.sp
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            if (isRestoring) {
+                Surface(
+                    color = DarkSurfaceElevated,
+                    shape = RoundedCornerShape(14.dp),
+                    border = OfficialGreenBorder,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = OfficialGreenBright,
+                            modifier = Modifier.size(34.dp),
+                            strokeWidth = 3.dp
+                        )
+                        Text(
+                            text = progressText.ifBlank { "جاري استعادة البيانات وتفعيل التطبيق..." },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OfficialGreenBright,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (restoreSuccessMessage != null) {
+                Surface(
+                    color = OfficialGreenDeep.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.5.dp, OfficialGreenBright),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = OfficialGreenBright,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Text(
+                            text = "تمت عملية التفعيل واستعادة البيانات بنجاح! ✓",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = restoreSuccessMessage.orEmpty(),
+                            fontSize = 12.sp,
+                            color = OfficialGreenSoft,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Button(
+                            onClick = { openInstalledApp(context, targetPackage) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = OfficialGreenBright)
+                        ) {
+                            Text(
+                                text = "فتح تطبيق $targetAppName الآن",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            if (restoreErrorMessage != null) {
+                Surface(
+                    color = DangerRed.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, DangerRed),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "⚠️ ${restoreErrorMessage.orEmpty()}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DangerRed,
+                        modifier = Modifier.padding(14.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            if (restoreSuccessMessage == null && !isRestoring) {
+                AnimatedStepGuideTooltip(
+                    stepBadge = "تفعيل الآن",
+                    message = "اضغط على الزر الأخضر أدناه لبدء استعادة بيانات التفعيل تلقائياً",
+                    accentColor = OfficialGreenBright
+                )
+            }
+
+            Button(
+                onClick = { triggerSmartRestoreWithoutRoot() },
+                enabled = !isRestoring,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (restoreSuccessMessage == null) OfficialGreenPrimary else DarkSurfaceElevated
+                ),
+                border = if (restoreSuccessMessage != null) BorderStroke(1.2.dp, OfficialGreenBright) else null
+            ) {
+                Text(
+                    text = if (restoreSuccessMessage == null) {
+                        "بدء تفعيل التطبيق واستعادة البيانات (ZIP)"
+                    } else {
+                        "🔄 إعادة المحاولة / تكرار استعادة البيانات"
+                    },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            ContactSupportWaitingButton(
+                requestId = request?.id.orEmpty(),
+                phoneNumber = request?.phoneNumber.orEmpty(),
+                statusLabel = "استعادة ملف التفعيل الذكي"
             )
         }
     }
@@ -3138,9 +3567,16 @@ fun AnimatedStepGuideTooltip(
 fun SelectableCheckOptionCard(
     title: String,
     subtitle: String? = null,
+    iconDrawableName: String? = null,
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val iconResId = remember(iconDrawableName) {
+        if (iconDrawableName.isNullOrBlank()) 0
+        else context.resources.getIdentifier(iconDrawableName, "drawable", context.packageName)
+    }
+
     Surface(
         color = if (isSelected) OfficialGreenDeep.copy(alpha = 0.5f) else DarkSurfaceElevated,
         shape = RoundedCornerShape(12.dp),
@@ -3157,20 +3593,55 @@ fun SelectableCheckOptionCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelected) Color.White else TextPrimary
-                )
-                if (!subtitle.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                if (!iconDrawableName.isNullOrBlank()) {
+                    if (iconResId != 0) {
+                        Image(
+                            painter = painterResource(id = iconResId),
+                            contentDescription = title,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, OfficialGreenBright.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .background(OfficialGreenBright.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                                .border(1.dp, OfficialGreenBright.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Phone,
+                                contentDescription = title,
+                                tint = OfficialGreenBright,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = subtitle,
-                        fontSize = 11.sp,
-                        color = if (isSelected) OfficialGreenSoft else TextSecondary
+                        text = title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) Color.White else TextPrimary
                     )
+                    if (!subtitle.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = subtitle,
+                            fontSize = 11.sp,
+                            color = if (isSelected) OfficialGreenSoft else TextSecondary
+                        )
+                    }
                 }
             }
 
